@@ -6,6 +6,7 @@ use std::{fs, io, path::PathBuf};
 pub struct Settings {
     pub falling: bool,
     pub caps: bool,
+    pub snowballs: bool,
     pub bottom_snow: bool,
     pub shake_to_clear: bool,
     pub intensity: f32,
@@ -38,6 +39,7 @@ impl Default for Settings {
         Self {
             falling: true,
             caps: true,
+            snowballs: true,
             bottom_snow: true,
             shake_to_clear: true,
             intensity: 45.0,
