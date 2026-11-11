@@ -3,6 +3,7 @@ use crate::{
     settings::Settings,
     shake::Shake,
     snowcap::SnowCap,
+    snowball::{self, Snowball},
     weather::{self, Observation},
 };
 use std::{
@@ -25,6 +26,7 @@ use windows_sys::{
         UI::{Accessibility::*, Shell::*, WindowsAndMessaging::*},
     },
 };
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_SHIFT};
 
 const TRAY: u32 = WM_APP + 1;
 const WAKE: u32 = WM_APP + 2;
@@ -51,6 +53,9 @@ pub enum Action {
 #[derive(Clone, Default)]
 pub struct Diagnostics {
     pub tracked: usize,
+    pub snowballs: usize,
+    pub snowmen: usize,
+    pub moving_balls: bool,
     pub caps: usize,
     pub bottom_edges: usize,
     pub particles: usize,
@@ -137,6 +142,41 @@ pub fn wide(text: &str) -> Vec<u16> {
     text.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
+#[derive(Clone, Copy)]
+struct Pointer {
+    x: f32,
+    y: f32,
+}
+
+#[derive(Clone, Copy)]
+enum Grab {
+    Cap(usize),
+    Ball(u64),
+}
+
+#[derive(Clone, Copy)]
+enum MouseAction {
+    Down(Grab, Pointer),
+    Move(Pointer),
+    Up(Pointer),
+}
+
+#[derive(Clone)]
+struct CapHit {
+    id: usize,
+    bounds: Bounds,
+    height: f32,
+    obstacles: Vec<Bounds>,
+}
+
+#[derive(Clone, Copy)]
+struct BallHit {
+    id: u64,
+    x: f32,
+    y: f32,
+    radius: f32,
+}
+
 #[derive(Default)]
 struct Events {
     controller: usize,
@@ -152,6 +192,11 @@ struct Events {
     displays_dirty: bool,
     restore_tray: bool,
     tray_message: u32,
+    cap_hits: Vec<CapHit>,
+    ball_hits: Vec<BallHit>,
+    mouse: Vec<MouseAction>,
+    mouse_capturing: bool,
+    last_mouse_wake: u32,
 }
 
 thread_local! { static EVENTS: RefCell<Events> = RefCell::new(Events::default()); }
@@ -296,6 +341,81 @@ unsafe extern "system" fn win_event(
     queue_geometry();
 }
 
+/// Only intercept Shift + left-drag over visible snow or an existing ball.
+/// All other input continues to reach the underlying Windows application.
+unsafe extern "system" fn mouse_hook_proc(code: i32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+    if code != HC_ACTION as i32
+        || !matches!(wp as u32, WM_LBUTTONDOWN | WM_LBUTTONUP | WM_MOUSEMOVE)
+        || lp == 0
+    {
+        return CallNextHookEx(null_mut(), code, wp, lp);
+    }
+    let data = &*(lp as *const MSLLHOOKSTRUCT);
+    let at = Pointer {
+        x: data.pt.x as f32,
+        y: data.pt.y as f32,
+    };
+    let mut consume = false;
+    let mut wake = 0usize;
+    EVENTS.with_borrow_mut(|events| {
+        match wp as u32 {
+            WM_LBUTTONDOWN if !events.mouse_capturing && GetAsyncKeyState(VK_SHIFT as i32) < 0 => {
+                let ball = events.ball_hits.iter().rev().find(|ball| {
+                    let dx = at.x - ball.x;
+                    let dy = at.y - ball.y;
+                    dx * dx + dy * dy <= (ball.radius + 3.0).powi(2)
+                });
+                let target = ball.map(|ball| Grab::Ball(ball.id)).or_else(|| {
+                    events.cap_hits.iter().rev().find(|hit| {
+                        at.x >= hit.bounds.left as f32
+                            && at.x < hit.bounds.right as f32
+                            && at.y < hit.bounds.top as f32
+                            && at.y >= hit.bounds.top as f32 - hit.height - 4.0
+                            && !hit.obstacles.iter().any(|rect| {
+                                rect.contains(at.x as i32, at.y as i32)
+                            })
+                    }).map(|hit| Grab::Cap(hit.id))
+                });
+                if let Some(target) = target {
+                    events.mouse_capturing = true;
+                    events.mouse.push(MouseAction::Down(target, at));
+                    events.last_mouse_wake = data.time;
+                    consume = true;
+                    wake = events.controller;
+                }
+            }
+            WM_MOUSEMOVE if events.mouse_capturing => {
+                // Coalesce dense mouse motion so the message thread stays responsive.
+                if let Some(MouseAction::Move(previous)) = events.mouse.last_mut() {
+                    *previous = at;
+                } else {
+                    events.mouse.push(MouseAction::Move(at));
+                }
+                consume = true;
+                if data.time.wrapping_sub(events.last_mouse_wake) >= 16 {
+                    events.last_mouse_wake = data.time;
+                    wake = events.controller;
+                }
+            }
+            WM_LBUTTONUP if events.mouse_capturing => {
+                events.mouse.push(MouseAction::Up(at));
+                events.mouse_capturing = false;
+                consume = true;
+                wake = events.controller;
+            }
+            _ => {}
+        }
+    });
+    if wake != 0 {
+        PostMessageW(wake as HWND, WAKE, 0, 0);
+    }
+    if consume {
+        1
+    } else {
+        CallNextHookEx(null_mut(), code, wp, lp)
+    }
+}
+
 unsafe fn tray_menu(hwnd: HWND) -> Option<Action> {
     let menu = CreatePopupMenu();
     if menu.is_null() {
@@ -416,6 +536,10 @@ unsafe fn run(
     tip(&mut notify, 0);
     let tray_ready = Shell_NotifyIconW(NIM_ADD, &notify) != 0;
     let mut tray_state = 0;
+    let mouse_hook = SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_hook_proc), instance, 0);
+    if mouse_hook.is_null() {
+        crate::settings::log("Snowballs: WH_MOUSE_LL hook unavailable");
+    }
     let hooks = [
         (EVENT_OBJECT_CREATE, EVENT_OBJECT_LOCATIONCHANGE),
         (EVENT_OBJECT_CLOAKED, EVENT_OBJECT_UNCLOAKED),
@@ -532,6 +656,10 @@ unsafe fn run(
             tip(&mut notify, desired);
             Shell_NotifyIconW(if restore_tray { NIM_ADD } else { NIM_MODIFY }, &notify);
         }
+        let mouse_actions = EVENTS.with_borrow_mut(|events| std::mem::take(&mut events.mouse));
+        for action in mouse_actions {
+            engine.handle_mouse(action, now, &settings);
+        }
         let conditions = weather::conditions(&settings, observation.as_ref(), now);
         let expiry = observation.as_ref().map(Observation::expires);
         let diag = engine.tick(
@@ -543,7 +671,7 @@ unsafe fn run(
             sleeping,
             frame || wake,
         );
-        let desired = if diag.particles > 0 {
+        let desired = if diag.particles > 0 || diag.moving_balls {
             1000u32.div_ceil(settings.fps).max(10)
         } else {
             0
@@ -567,6 +695,9 @@ unsafe fn run(
         if !hook.is_null() {
             UnhookWinEvent(hook);
         }
+    }
+    if !mouse_hook.is_null() {
+        UnhookWindowsHookEx(mouse_hook);
     }
     if power != 0 {
         UnregisterPowerSettingNotification(power);
