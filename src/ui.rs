@@ -615,6 +615,8 @@ impl App {
             ui.label(format!("Частиц на дисплеях: {}", diag.particles));
             ui.label(format!("Снежных шаров: {}", diag.snowballs));
             ui.label(format!("Собрано снеговиков: {}", diag.snowmen));
+            ui.label(format!("Окон с наледью: {}", diag.iced_windows));
+            ui.label(format!("Капель при оттепели: {}", diag.drips));
         });
     }
 
