@@ -1919,7 +1919,7 @@ impl Canvas {
             }
         }
         if s.snowballs {
-            self.draw_balls(balls);
+            self.draw_balls(balls, s.snowman_decorations);
         }
         self.count = count;
         self.flakes.truncate(count);
@@ -1992,9 +1992,10 @@ impl Canvas {
         }
     }
 
-    fn draw_balls(&mut self, balls: &[Snowball]) {
+    fn draw_balls(&mut self, balls: &[Snowball], decorate: bool) {
         let mut sorted: Vec<_> = balls.iter().copied().collect();
-        // Draw ground-level bases before their smaller middle and head sections.
+        // Bases first; finished snowmen are decorated only after their
+        // spheres are composited so hats, faces and scarves stay readable.
         sorted.sort_by(|a, b| b.y.total_cmp(&a.y));
         for ball in sorted {
             let radius = ball.radius();
@@ -2006,20 +2007,188 @@ impl Canvas {
                 continue;
             }
             self.draw_sphere(ball);
-            if snowball::is_head_of_snowman(balls, ball.id) {
-                let x = ball.x - self.bounds.left as f32;
-                let y = ball.y - self.bounds.top as f32;
-                self.colored_disc(x - radius * 0.22, y - radius * 0.14, (radius * 0.10).max(1.5), [37, 52, 66]);
-                self.colored_disc(x + radius * 0.20, y - radius * 0.14, (radius * 0.10).max(1.5), [37, 52, 66]);
-                self.colored_disc(x + radius * 0.09, y + radius * 0.05, (radius * 0.15).max(2.0), [237, 122, 58]);
-            } else if balls.iter().any(|child| child.parent == Some(ball.id)
-                && snowball::is_head_of_snowman(balls, child.id))
-            {
-                let x = ball.x - self.bounds.left as f32;
-                let y = ball.y - self.bounds.top as f32;
-                self.colored_disc(x, y, (radius * 0.08).max(1.6), [50, 68, 82]);
-                self.colored_disc(x, y + radius * 0.35, (radius * 0.08).max(1.6), [50, 68, 82]);
+        }
+        if decorate {
+            for head in balls.iter().copied().filter(|ball| {
+                snowball::is_head_of_snowman(balls, ball.id)
+            }) {
+                if let Some(middle) = head.parent.and_then(|id| {
+                    balls.iter().copied().find(|ball| ball.id == id)
+                }) {
+                    self.draw_snowman_outfit(head, middle);
+                }
             }
+        }
+    }
+
+    fn draw_snowman_outfit(&mut self, head: Snowball, middle: Snowball) {
+        let ox = self.bounds.left as f32;
+        let oy = self.bounds.top as f32;
+        let (hx, hy) = (head.x - ox, head.y - oy);
+        let (mx, my) = (middle.x - ox, middle.y - oy);
+        let hr = head.radius();
+        let mr = middle.radius();
+        let (cloth, edge, dark, festive) = match head.outfit % 3 {
+            1 => ([192, 52, 70], [252, 239, 223], [65, 43, 57], true),
+            2 => ([62, 151, 174], [193, 232, 239], [29, 65, 91], false),
+            _ => ([176, 64, 79], [233, 175, 167], [48, 57, 74], false),
+        };
+        // Twig arms are attached to the middle snowball; they are drawn
+        // only for completed snowmen and never interfere with mouse hit tests.
+        let branch = [112, 82, 66];
+        let left = (mx - mr * 0.74, my - mr * 0.13);
+        let right = (mx + mr * 0.74, my - mr * 0.13);
+        let left_tip = (mx - mr * 1.65, my - mr * 0.76);
+        let right_tip = (mx + mr * 1.65, my - mr * 0.76);
+        self.colored_stroke(left, left_tip, (mr * 0.065).max(1.1), branch);
+        self.colored_stroke(right, right_tip, (mr * 0.065).max(1.1), branch);
+        self.colored_stroke(
+            (left_tip.0 + mr * 0.24, left_tip.1 + mr * 0.15),
+            (left_tip.0 + mr * 0.11, left_tip.1 - mr * 0.19),
+            1.0,
+            branch,
+        );
+        self.colored_stroke(
+            (right_tip.0 - mr * 0.24, right_tip.1 + mr * 0.15),
+            (right_tip.0 - mr * 0.11, right_tip.1 - mr * 0.19),
+            1.0,
+            branch,
+        );
+
+        // Coal buttons and eyes.
+        for offset in [0.0, 0.37, 0.69] {
+            self.colored_disc(mx, my + mr * offset, (mr * 0.085).max(1.5), dark);
+        }
+        for side in [-1.0f32, 1.0] {
+            self.colored_disc(
+                hx + side * hr * 0.29,
+                hy - hr * 0.14,
+                (hr * 0.11).max(1.2),
+                [45, 53, 67],
+            );
+        }
+        // Slightly elongated carrot, not an oversized round dot.
+        self.colored_stroke(
+            (hx + hr * 0.06, hy + hr * 0.09),
+            (hx + hr * 0.56, hy + hr * 0.24),
+            (hr * 0.12).max(1.3),
+            [233, 122, 57],
+        );
+
+        // Scarf neck with a short hanging tail.
+        let neck_y = hy + hr * 0.83;
+        self.colored_stroke(
+            (hx - hr * 0.83, neck_y),
+            (hx + hr * 0.83, neck_y),
+            (hr * 0.19).max(1.6),
+            cloth,
+        );
+        self.colored_stroke(
+            (hx + hr * 0.45, neck_y),
+            (hx + hr * 0.51, neck_y + mr * 0.90),
+            (hr * 0.18).max(1.4),
+            cloth,
+        );
+        self.colored_disc(
+            hx + hr * 0.51,
+            neck_y + mr * 0.90,
+            (hr * 0.18).max(1.4),
+            edge,
+        );
+
+        // Headwear: top hat, Santa hat, knitted winter hat.
+        let hat_y = hy - hr * 0.89;
+        if festive {
+            self.colored_stroke(
+                (hx - hr * 0.78, hat_y),
+                (hx + hr * 0.78, hat_y),
+                (hr * 0.19).max(1.6),
+                edge,
+            );
+            self.colored_stroke(
+                (hx - hr * 0.61, hat_y - hr * 0.09),
+                (hx + hr * 0.18, hat_y - hr * 0.96),
+                (hr * 0.55).max(3.0),
+                cloth,
+            );
+            self.colored_disc(
+                hx + hr * 0.18,
+                hat_y - hr * 0.98,
+                (hr * 0.20).max(2.0),
+                edge,
+            );
+        } else if head.outfit % 3 == 2 {
+            self.colored_rounded_cap(
+                hx - hr * 0.66,
+                hat_y - hr * 0.68,
+                hx + hr * 0.66,
+                hat_y + hr * 0.06,
+                cloth,
+            );
+            self.colored_stroke(
+                (hx - hr * 0.81, hat_y),
+                (hx + hr * 0.81, hat_y),
+                (hr * 0.15).max(1.5),
+                edge,
+            );
+            self.colored_disc(hx, hat_y - hr * 0.77, (hr * 0.20).max(1.7), edge);
+        } else {
+            self.colored_rounded_cap(
+                hx - hr * 0.53,
+                hat_y - hr * 0.85,
+                hx + hr * 0.53,
+                hat_y + hr * 0.05,
+                dark,
+            );
+            self.colored_stroke(
+                (hx - hr * 0.85, hat_y + hr * 0.01),
+                (hx + hr * 0.85, hat_y + hr * 0.01),
+                (hr * 0.15).max(1.5),
+                dark,
+            );
+            self.colored_stroke(
+                (hx - hr * 0.51, hat_y - hr * 0.07),
+                (hx + hr * 0.51, hat_y - hr * 0.07),
+                (hr * 0.10).max(1.0),
+                cloth,
+            );
+        }
+    }
+
+    fn colored_stroke(
+        &mut self,
+        from: (f32, f32),
+        to: (f32, f32),
+        thickness: f32,
+        rgb: [u8; 3],
+    ) {
+        let dx = to.0 - from.0;
+        let dy = to.1 - from.1;
+        let steps = dx.abs().max(dy.abs()).ceil().max(1.0) as usize;
+        for step in 0..=steps {
+            let t = step as f32 / steps as f32;
+            self.colored_disc(from.0 + dx * t, from.1 + dy * t, thickness, rgb);
+        }
+    }
+
+    fn colored_rounded_cap(
+        &mut self,
+        left: f32,
+        top: f32,
+        right: f32,
+        bottom: f32,
+        rgb: [u8; 3],
+    ) {
+        if right <= left || bottom <= top {
+            return;
+        }
+        for y in top.ceil() as i32..=bottom.floor() as i32 {
+            self.colored_stroke(
+                (left + 1.0, y as f32),
+                (right - 1.0, y as f32),
+                1.0,
+                rgb,
+            );
         }
     }
 
