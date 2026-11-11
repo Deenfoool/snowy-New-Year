@@ -1686,6 +1686,15 @@ impl Engine {
                     })
                     .collect();
                 let has_clumps = !falling_clumps.is_empty();
+                let drops_here: Vec<_> = water_drops.iter()
+                    .filter(|drop| {
+                        drop.x >= (bounds.left - 5) as f32
+                            && drop.x < (bounds.right + 5) as f32
+                            && drop.y >= (bounds.top - 5) as f32
+                            && drop.y < (bounds.bottom + 5) as f32
+                    })
+                    .collect();
+                let has_drops = !drops_here.is_empty();
                 let bottom = (s.bottom_snow && bottom_depth >= 1.25).then(|| SnowCap {
                     width: bounds.width() + BOTTOM_INSET * 2,
                     depth: bottom_depth,
@@ -1739,7 +1748,9 @@ impl Engine {
                         && ball.y + radius >= bounds.top as f32
                         && ball.y - radius < bounds.bottom as f32
                 });
-                if count == 0 && edges.is_empty() && !has_clumps && bottom.is_none() && !balls_here {
+                if count == 0 && edges.is_empty()
+                    && !has_clumps && !has_drops
+                    && bottom.is_none() && !balls_here {
                     continue;
                 }
                 let name = &display.name;
@@ -1754,7 +1765,7 @@ impl Engine {
                 };
                 active.push(name.clone());
                 let cap_changed = canvas.edges != edges || canvas.bottom_shape != bottom;
-                if (count != 0 || has_clumps) && animate
+                if (count != 0 || has_clumps || has_drops) && animate
                     || cap_changed
                     || canvas.count != count
                     || canvas.shedding != has_clumps
@@ -1771,6 +1782,7 @@ impl Engine {
                         &mut self.caps,
                         bottom,
                         &falling_clumps,
+                        &drops_here,
                         &self.balls,
                         &mut self.random,
                         cap_changed || self.changed,
@@ -1780,7 +1792,7 @@ impl Engine {
                     canvas.bottom_shape = bottom;
                 }
                 if canvas.shown {
-                    diag.particles += count + falling_clumps.len();
+                    diag.particles += count + falling_clumps.len() + drops_here.len();
                     caps_drawn += canvas.cap_count;
                     diag.bottom_edges += usize::from(bottom.is_some());
                     if s.snowballs {
@@ -2022,6 +2034,7 @@ impl Canvas {
         caps: &mut HashMap<usize, Cap>,
         bottom: Option<SnowCap>,
         falling_clumps: &[&SnowParticle],
+        falling_drops: &[&SnowParticle],
         balls: &[Snowball],
         seed: &mut u32,
         rebuild_caps: bool,
@@ -2079,7 +2092,15 @@ impl Canvas {
             let radius = (s.size * flake.size * 0.63).max(0.7);
             self.draw_particle(x, y, radius, s.opacity * 2.55);
         }
-        self.shedding = !falling_clumps.is_empty();
+        self.shedding = !falling_clumps.is_empty() || !falling_drops.is_empty();
+        for drip in falling_drops {
+            self.colored_stroke(
+                (drip.x - bounds.left as f32, drip.y - bounds.top as f32 - 2.5),
+                (drip.x - bounds.left as f32, drip.y - bounds.top as f32),
+                drip.radius * (drip.opacity / 255.0).clamp(0.1, 1.0),
+                [139, 216, 247],
+            );
+        }
         for snow in falling_clumps {
             self.draw_particle(
                 snow.x - bounds.left as f32,
