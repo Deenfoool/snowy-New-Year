@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="640" viewBox="0 0 960 640" role="img" aria-label="Snowy New Year — Frosted Glass Dark main screen design">
+<defs>
+  <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#172F4D"/><stop offset="1" stop-color="#0F2237"/></linearGradient>
+  <linearGradient id="top" x1="0" x2="1"><stop stop-color="#101C2C"/><stop offset="1" stop-color="#12233A"/></linearGradient>
+  <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#000A14" flood-opacity=".35"/></filter>
+  <clipPath id="sceneclip"><rect x="245" y="242" width="664" height="147" rx="10"/></clipPath>
+</defs>
+<rect width="960" height="640" rx="16" fill="#0B1422"/>
+<rect width="960" height="54" rx="16" fill="url(#top)"/><rect y="40" width="960" height="14" fill="url(#top)"/>
+<path d="M0 54H960" stroke="#304358"/>
+<rect x="0" y="54" width="198" height="586" fill="#101C2C"/>
+<path d="M198 54V640" stroke="#253A50"/>
+<text x="22" y="36" font-family="Segoe UI,Arial,sans-serif" font-size="26" fill="#8DD9F6">❄</text>
+<text x="59" y="33" font-family="Segoe UI,Arial,sans-serif" font-size="16" font-weight="700" fill="#F1F7FD">Snowy New Year</text>
+<text x="218" y="32" font-family="Segoe UI,Arial,sans-serif" font-size="10" letter-spacing="1.5" fill="#7C9BB5">UI CONCEPT</text>
+<g fill="#90A4B8" font-family="Segoe UI,Arial,sans-serif" font-size="19"><text x="864" y="32">–</text><text x="902" y="32">□</text><text x="938" y="32">×</text></g>
+<rect x="12" y="80" width="174" height="44" rx="10" fill="#25465E"/>
+<g font-family="Segoe UI,Arial,sans-serif" font-size="14">
+<text x="27" y="107" fill="#A6E6FF" font-size="21">⌂</text><text x="59" y="107" fill="#F1F7FD" font-weight="600">Главная</text>
+<text x="27" y="160" fill="#8DD9F6" font-size="19">❄</text><text x="59" y="159" fill="#B5C9D9">Эффекты</text>
+<text x="27" y="209" fill="#8DD9F6" font-size="19">☁</text><text x="59" y="207" fill="#B5C9D9">Погода</text>
+<text x="27" y="260" fill="#8DD9F6" font-size="19">◴</text><text x="59" y="259" fill="#B5C9D9">Производительность</text>
+<text x="27" y="311" fill="#8DD9F6" font-size="19">◈</text><text x="59" y="309" fill="#B5C9D9">Оформление</text>
+<text x="27" y="362" fill="#8DD9F6" font-size="19">⚙</text><text x="59" y="359" fill="#B5C9D9">Настройки</text>
+</g>
+<path d="M16 570H182" stroke="#304358"/>
+<circle cx="28" cy="590" r="5" fill="#74D7A7"/>
+<text x="43" y="594" font-family="Segoe UI,Arial,sans-serif" font-size="11.5" fill="#B6C9D9">Эффекты включены</text>
+<text x="24" y="620" font-family="Segoe UI,Arial,sans-serif" font-size="10" fill="#718AA2">v0.1 · Design reference</text>
+<text x="230" y="96" font-family="Segoe UI,Arial,sans-serif" font-size="10" letter-spacing="2" fill="#8DD9F6">ДОБРО ПОЖАЛОВАТЬ</text>
+<text x="230" y="132" font-family="Segoe UI,Arial,sans-serif" font-size="26" font-weight="700" fill="#F1F7FD">Зимняя атмосфера</text>
+<text x="230" y="155" font-family="Segoe UI,Arial,sans-serif" font-size="12" fill="#9CB5CA">Управляй снегом на своём рабочем столе</text>
+<rect x="825" y="100" width="105" height="39" rx="10" fill="#8DD9F6"/>
+<text x="844" y="124" font-family="Segoe UI,Arial,sans-serif" font-size="13" font-weight="700" fill="#0B2233">Ⅱ  Пауза</text>
+<rect x="228" y="178" width="704" height="238" rx="14" fill="#172B40" stroke="#29475E"/>
+<text x="249" y="204" font-family="Segoe UI,Arial,sans-serif" font-size="15" font-weight="600" fill="#F1F7FD">⌖  Борисоглебск</text>
+<text x="250" y="223" font-family="Segoe UI,Arial,sans-serif" font-size="12" fill="#A8BFD2">Пасмурно · 0 мм осадков</text>
+<text x="894" y="209" text-anchor="end" font-family="Segoe UI,Arial,sans-serif" font-size="27" font-weight="700" fill="#F6FBFF">+4,4°</text>
+<text x="895" y="227" text-anchor="end" font-family="Segoe UI,Arial,sans-serif" font-size="10" fill="#A3CBE0">Пример погодных данных</text>
+<rect x="245" y="242" width="664" height="147" rx="10" fill="url(#sky)" stroke="#40617D"/>
+<g clip-path="url(#sceneclip)">
+  <circle cx="838" cy="272" r="19" fill="#2B4C6B"/>
+  <g fill="#C7E8FA" opacity=".8"><circle cx="274" cy="270" r="2"/><circle cx="328" cy="308" r="1.5"/><circle cx="387" cy="260" r="2"/><circle cx="496" cy="277" r="1"/><circle cx="566" cy="308" r="2"/><circle cx="633" cy="266" r="2"/><circle cx="749" cy="293" r="1"/><circle cx="875" cy="330" r="2"/><circle cx="793" cy="262" r="1.5"/><circle cx="715" cy="334" r="1.4"/><circle cx="456" cy="346" r="2"/></g>
+  <rect x="423" y="276" width="308" height="165" rx="9" fill="#263E55" stroke="#7695AA" stroke-width="2" filter="url(#shadow)"/>
+  <rect x="423" y="276" width="308" height="30" rx="9" fill="#455E78"/><rect x="423" y="296" width="308" height="10" fill="#455E78"/>
+  <circle cx="442" cy="290" r="4" fill="#DEA09D"/><circle cx="456" cy="290" r="4" fill="#E6CC88"/><circle cx="470" cy="290" r="4" fill="#9AD7B7"/>
+  <rect x="440" y="326" width="133" height="90" rx="5" fill="#37526B"/><rect x="585" y="326" width="130" height="90" rx="5" fill="#37526B"/>
+  <path d="M422 279Q438 269 454 277T489 275T523 276T560 275T596 274T631 276T666 275T704 274T733 278V288Q720 304 705 292T673 290T638 292T603 291T565 290T530 293T494 292T461 290T423 292Z" fill="#F0FAFF" stroke="#CAE9F8" stroke-width="1.4"/>
+  <path d="M648 294Q650 309 653 318Q656 309 659 294M707 292Q709 302 711 310Q714 300 715 293" fill="#D2F2FD" opacity=".85"/>
+</g>
+<text x="252" y="403" font-family="Segoe UI,Arial,sans-serif" font-size="10.5" fill="#9CB8CE">Демонстрационная сцена · не фактический снегопад</text>
+<rect x="228" y="435" width="704" height="178" rx="14" fill="#172B40" stroke="#29475E"/>
+<text x="251" y="464" font-family="Segoe UI,Arial,sans-serif" font-size="15" font-weight="600" fill="#F0F8FF">Быстрое управление</text>
+<text x="253" y="501" font-family="Segoe UI,Arial,sans-serif" font-size="17" fill="#8DD9F6">❄</text><text x="282" y="500" font-family="Segoe UI,Arial,sans-serif" font-size="14" fill="#ECF6FC">Снегопад</text>
+<text x="282" y="515" font-family="Segoe UI,Arial,sans-serif" font-size="10.5" fill="#92AEC5">Снежинки поверх рабочего стола</text>
+<path d="M251 528H909" stroke="#304960"/>
+<text x="252" y="553" font-family="Segoe UI,Arial,sans-serif" font-size="17" fill="#8DD9F6">▰</text><text x="282" y="553" font-family="Segoe UI,Arial,sans-serif" font-size="14" fill="#ECF6FC">Снежные шапки</text><text x="282" y="568" font-family="Segoe UI,Arial,sans-serif" font-size="10.5" fill="#92AEC5">Накопление снега на верхних границах окон</text>
+<rect x="864" y="480" width="43" height="24" rx="12" fill="#4E9FC3"/><circle cx="894" cy="492" r="9" fill="#E7F3FD"/>
+<rect x="864" y="538" width="43" height="24" rx="12" fill="#4E9FC3"/><circle cx="894" cy="550" r="9" fill="#E7F3FD"/>
+<rect x="228" y="0" width="0" height="0" fill="none"/>
+</svg>
