@@ -165,7 +165,7 @@ enum MouseAction {
 struct CapHit {
     id: usize,
     bounds: Bounds,
-    height: f32,
+    heights: Vec<f32>,
     obstacles: Vec<Bounds>,
 }
 
@@ -367,10 +367,14 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wp: WPARAM, lp: LPARAM) -> 
                 });
                 let target = ball.map(|ball| Grab::Ball(ball.id)).or_else(|| {
                     events.cap_hits.iter().rev().find(|hit| {
-                        at.x >= hit.bounds.left as f32
+                        let local_x = (at.x - hit.bounds.left as f32).max(0.0);
+                        let segment = local_x as usize / SNOW_SEGMENT;
+                        let available = hit.heights.get(segment).copied().unwrap_or(0.0);
+                        available >= 2.0
+                            && at.x >= hit.bounds.left as f32
                             && at.x < hit.bounds.right as f32
                             && at.y < hit.bounds.top as f32
-                            && at.y >= hit.bounds.top as f32 - hit.height - 4.0
+                            && at.y >= hit.bounds.top as f32 - available - 3.0
                             && !hit.obstacles.iter().any(|rect| {
                                 rect.contains(at.x as i32, at.y as i32)
                             })
@@ -1612,18 +1616,36 @@ impl Engine {
                     diag.bottom_edges += usize::from(bottom.is_some());
                     if s.snowballs {
                         for &(index, rect, shape) in &edges {
-                            if shape.depth >= 2.0 {
-                                let obstacles = self.windows[..index].iter()
-                                    .filter(|window| window.visible && window.bounds.intersects(rect))
-                                    .map(|window| window.bounds)
-                                    .collect();
-                                cap_hits.push(CapHit {
-                                    id: self.windows[index].id,
-                                    bounds: rect,
-                                    height: shape.depth,
-                                    obstacles,
-                                });
+                            let window_id = self.windows[index].id;
+                            if shape.depth < 2.0 {
+                                continue;
                             }
+                            let Some(cap) = self.caps.get(&window_id) else {
+                                continue;
+                            };
+                            let heights: Vec<f32> = cap.removed.iter().enumerate().map(|(index, taken)| {
+                                let mid = (index * SNOW_SEGMENT + SNOW_SEGMENT / 2)
+                                    .min(shape.width.max(1) as usize - 1) as f32;
+                                (shape.sample_height(mid) - taken).max(0.0)
+                            }).collect();
+                            if !heights.iter().any(|&height| height >= 2.0) {
+                                continue;
+                            }
+                            let area = Bounds {
+                                top: rect.top - shape.depth.ceil() as i32 - 4,
+                                bottom: rect.top,
+                                ..rect
+                            };
+                            let obstacles = self.windows[..index].iter()
+                                .filter(|window| window.visible && window.bounds.intersects(area))
+                                .map(|window| window.bounds)
+                                .collect();
+                            cap_hits.push(CapHit {
+                                id: window_id,
+                                bounds: rect,
+                                heights,
+                                obstacles,
+                            });
                         }
                         for ball in &self.balls {
                             let radius = ball.radius();
