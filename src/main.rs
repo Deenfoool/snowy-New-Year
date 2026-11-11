@@ -7,6 +7,7 @@ mod overlay;
 mod settings;
 mod shake;
 mod snowcap;
+mod snowball;
 mod ui;
 mod weather;
 
