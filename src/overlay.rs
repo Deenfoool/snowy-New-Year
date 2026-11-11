@@ -896,7 +896,7 @@ impl SnowDepth {
 }
 
 impl CapBitmap {
-    fn pixels(cache: &mut Option<Self>, shape: SnowCap, removed: &[f32]) -> &[(i32, i32, u32)] {
+    fn pixels<'a>(cache: &'a mut Option<Self>, shape: SnowCap, removed: &[f32]) -> &'a [(i32, i32, u32)] {
         let bitmap = cache.get_or_insert_with(|| Self {
             shape,
             pixels: Vec::new(),
