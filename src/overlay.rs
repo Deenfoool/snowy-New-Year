@@ -159,6 +159,7 @@ enum MouseAction {
     Down(Grab, Pointer),
     Move(Pointer),
     Up(Pointer),
+    Decorate(u64),
 }
 
 #[derive(Clone)]
@@ -175,6 +176,7 @@ struct BallHit {
     x: f32,
     y: f32,
     radius: f32,
+    decoratable: bool,
 }
 
 #[derive(Default)]
@@ -196,6 +198,7 @@ struct Events {
     ball_hits: Vec<BallHit>,
     mouse: Vec<MouseAction>,
     mouse_capturing: bool,
+    mouse_right_capturing: bool,
     last_mouse_wake: u32,
 }
 
@@ -341,11 +344,14 @@ unsafe extern "system" fn win_event(
     queue_geometry();
 }
 
-/// Only intercept Shift + left-drag over visible snow or an existing ball.
-/// All other input continues to reach the underlying Windows application.
+/// Only intercept Shift+LMB dragging over visible snow and Shift+RMB on a
+/// finished snowman's head. Never capture ordinary system mouse input.
 unsafe extern "system" fn mouse_hook_proc(code: i32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     if code != HC_ACTION as i32
-        || !matches!(wp as u32, WM_LBUTTONDOWN | WM_LBUTTONUP | WM_MOUSEMOVE)
+        || !matches!(
+            wp as u32,
+            WM_LBUTTONDOWN | WM_LBUTTONUP | WM_MOUSEMOVE | WM_RBUTTONDOWN | WM_RBUTTONUP
+        )
         || lp == 0
     {
         return CallNextHookEx(null_mut(), code, wp, lp);
@@ -359,6 +365,29 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wp: WPARAM, lp: LPARAM) -> 
     let mut wake = 0usize;
     EVENTS.with_borrow_mut(|events| {
         match wp as u32 {
+            WM_RBUTTONDOWN
+                if !events.mouse_right_capturing
+                    && !events.mouse_capturing
+                    && GetAsyncKeyState(VK_SHIFT as i32) < 0 =>
+            {
+                let target = events.ball_hits.iter().rev().find(|ball| {
+                    let dx = at.x - ball.x;
+                    let dy = at.y - ball.y;
+                    ball.decoratable && dx * dx + dy * dy <= (ball.radius + 3.0).powi(2)
+                });
+                if let Some(ball) = target {
+                    events.mouse_right_capturing = true;
+                    events.mouse.push(MouseAction::Decorate(ball.id));
+                    consume = true;
+                    wake = events.controller;
+                }
+            }
+            WM_RBUTTONUP if events.mouse_right_capturing => {
+                // Swallow the corresponding release, too: underlying apps must
+                // not see an orphan RMB-up or open their own context menu.
+                events.mouse_right_capturing = false;
+                consume = true;
+            }
             WM_LBUTTONDOWN if !events.mouse_capturing && GetAsyncKeyState(VK_SHIFT as i32) < 0 => {
                 let ball = events.ball_hits.iter().rev().find(|ball| {
                     let dx = at.x - ball.x;
@@ -1100,6 +1129,11 @@ impl Engine {
             return;
         }
         match action {
+            MouseAction::Decorate(id) => {
+                if settings.snowman_decorations && snowball::cycle_outfit(&mut self.balls, id) {
+                    self.changed = true;
+                }
+            }
             MouseAction::Down(target, at) => {
                 if self.gesture.is_some() {
                     return;
@@ -1659,6 +1693,8 @@ impl Engine {
                                     x: ball.x,
                                     y: ball.y,
                                     radius,
+                                    decoratable: s.snowman_decorations
+                                        && snowball::is_head_of_snowman(&self.balls, ball.id),
                                 });
                             }
                         }
@@ -1676,6 +1712,7 @@ impl Engine {
             events.ball_hits = ball_hits.clone();
             if paused || sleeping || !s.snowballs {
                 events.mouse_capturing = false;
+                events.mouse_right_capturing = false;
                 events.mouse.clear();
             }
         });
