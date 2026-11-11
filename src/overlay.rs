@@ -904,6 +904,8 @@ struct Cap {
     /// Amount of snow already rolled away in each 10px section.
     removed: Vec<f32>,
     removed_updated: Instant,
+    ice_factor: f32,
+    ice_updated: Instant,
     bitmap: Option<CapBitmap>,
 }
 
@@ -1098,6 +1100,8 @@ impl Engine {
                 },
                 removed: Vec::new(),
                 removed_updated: now,
+                ice_factor: 0.0,
+                ice_updated: now,
                 bitmap: None,
             });
             let wanted = (window.bounds.width().max(0) as usize).div_ceil(SNOW_SEGMENT);
@@ -1249,6 +1253,8 @@ impl Engine {
             roughness: settings.roughness / 100.0,
             seed: cap.seed,
             icicles: settings.icicles,
+            ice_factor: (cap.ice_factor * 20.0).round() / 20.0,
+            wind_bias: 0.0,
         };
         let distance = ((to.x - from.x).abs().max((to.y - from.y).abs()) / 7.0)
             .ceil()
@@ -1563,6 +1569,8 @@ impl Engine {
                         seed.rotate_left(5) ^ u32::from(byte)
                     }),
                     icicles: false,
+                    ice_factor: 0.0,
+                    wind_bias: if s.wind_drifts { weather.wind.clamp(-1.0, 1.0) } else { 0.0 },
                 });
                 let edges: Vec<_> = if s.caps {
                     self.windows
@@ -1583,6 +1591,8 @@ impl Engine {
                                 roughness: s.roughness / 100.0,
                                 seed: cap.seed,
                                 icicles: s.icicles,
+                                ice_factor: (cap.ice_factor * 20.0).round() / 20.0,
+                                wind_bias: 0.0,
                             };
                             let rows = shape.rows();
                             (height >= 1.0
