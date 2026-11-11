@@ -1,5 +1,8 @@
 use std::ops::Range;
 
+// The ball picks up the loose snow and leaves a compressed layer on the window.
+pub const ROLLABLE_FRACTION: f32 = 0.82;
+
 #[derive(Clone, Copy, PartialEq)]
 pub struct SnowCap {
     pub width: i32,
@@ -30,6 +33,27 @@ impl SnowCap {
         self.crest(x)
     }
 
+    pub fn rolled_height(&self, x: f32, removed: &[f32], segment_width: usize) -> f32 {
+        let height = self.crest(x);
+        height - self.groove_depth(x, removed, segment_width).min(height * ROLLABLE_FRACTION)
+    }
+
+    fn groove_depth(&self, x: f32, removed: &[f32], segment_width: usize) -> f32 {
+        if removed.is_empty() {
+            return 0.0;
+        }
+        let step = segment_width.max(1) as f32;
+        let left = ((x / step - 0.5).floor().max(0.0) as usize).min(removed.len() - 1);
+        let right = left + 1;
+        let Some(&next) = removed.get(right) else {
+            return removed[left];
+        };
+        let left_center = (left as f32 + 0.5) * step;
+        let right_start = right as f32 * step;
+        let right_center = right_start + (self.width as f32 - right_start).min(step) * 0.5;
+        removed[left] + (next - removed[left]) * smooth((x - left_center) / (right_center - left_center))
+    }
+
     /// A window can lose snow locally to rolling snowballs. The removed
     /// heights are stored at fixed-width segments of the upper edge.
     pub fn rasterize_removed(
@@ -41,14 +65,14 @@ impl SnowCap {
         mut put: impl FnMut(i32, i32, u32),
     ) {
         let span = self.width as f32;
-        let local_height = |x: f32| {
-            let segment = (x.max(0.0) as usize / segment_width.max(1)).min(removed.len().saturating_sub(1));
-            (self.crest(x) - removed.get(segment).copied().unwrap_or(0.0)).max(0.0)
-        };
+        let local_height = |x: f32| self.rolled_height(x, removed, segment_width);
         for x in columns.start.max(0)..columns.end.min(self.width) {
             let center = x as f32 + 0.5;
             let t = center / span;
-            let crest = local_height(center);
+            let fresh_height = self.crest(center);
+            let rolled = self.groove_depth(center, removed, segment_width)
+                .min(fresh_height * ROLLABLE_FRACTION);
+            let crest = fresh_height - rolled;
             if crest < 0.16 {
                 continue;
             }
@@ -56,7 +80,8 @@ impl SnowCap {
             let slope = (local_height(center + 1.5) - local_height(center - 1.5)) / 3.0;
             let drift = noise(self.seed ^ 0x6fd5_8e2b, t * (3.0 + span / 90.0));
             let scallop = noise(self.seed ^ 0x892a_37df, center / 19.0);
-            let lip = crest * (0.13 + 0.22 * drift + 0.08 * scallop);
+            let compacted = smooth(rolled / 6.0);
+            let lip = crest * (0.13 + 0.22 * drift + 0.08 * scallop) * (1.0 - compacted * 0.28);
             let shadow_width = (crest * 0.10 + 1.0).min(3.5);
             let thickness = crest + lip;
             let (ice_length, ice_center) = self.icicle(center, lip);
@@ -79,12 +104,14 @@ impl SnowCap {
                             ^ (x as u32).wrapping_mul(0x9e37_79b9)
                             ^ (y as u32).wrapping_mul(0x85eb_ca77),
                     );
-                    let brightness = broad_light + side_light + (grain - 0.5) * 7.0 - shade;
+                    let brightness = broad_light + side_light
+                        + (grain - 0.5) * (7.0 - 2.5 * compacted) - shade;
+                    let compressed_shade = compacted * (4.0 + 5.0 * volume);
                     argb(
                         [
-                            248.0 + brightness,
-                            251.0 + brightness * 0.73,
-                            253.0 + brightness * 0.44,
+                            248.0 + brightness - compressed_shade,
+                            251.0 + brightness * 0.73 - compressed_shade * 0.63,
+                            253.0 + brightness * 0.44 - compressed_shade * 0.28,
                         ],
                         coverage * 250.0,
                     )
@@ -194,6 +221,26 @@ mod tests {
         });
         assert!(removed_region < original);
         assert_eq!(unmodified_region, untouched);
+    }
+
+    #[test]
+    fn a_rolled_groove_has_rounded_edges_and_a_snow_layer() {
+        let cap = SnowCap {
+            width: 300,
+            depth: 20.0,
+            roughness: 0.35,
+            seed: 1024,
+            icicles: false,
+        };
+        let mut carved = [0.0; 30];
+        carved[12] = 6.0;
+        assert_eq!(cap.groove_depth(115.0, &carved, 10), 0.0);
+        assert_eq!(cap.groove_depth(120.0, &carved, 10), 3.0);
+        assert_eq!(cap.groove_depth(125.0, &carved, 10), 6.0);
+        assert_eq!(cap.groove_depth(130.0, &carved, 10), 3.0);
+        carved[12] = 100.0;
+        let remaining = cap.rolled_height(125.0, &carved, 10);
+        assert!(remaining > 0.0 && remaining < cap.sample_height(125.0));
     }
 
     #[test]

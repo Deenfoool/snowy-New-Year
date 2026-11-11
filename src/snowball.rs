@@ -15,7 +15,6 @@ pub struct Snowball {
     pub y: f32,
     /// 2D representation of the collected snow, in square screen pixels.
     pub area: f32,
-    pub vx: f32,
     pub vy: f32,
     pub parent: Option<u64>,
     pub grounded: bool,
@@ -28,7 +27,6 @@ impl Snowball {
             x,
             y,
             area: 0.0,
-            vx: 0.0,
             vy: 0.0,
             parent: None,
             grounded: false,
@@ -39,11 +37,11 @@ impl Snowball {
         (self.area / std::f32::consts::PI).sqrt().clamp(3.5, MAX_RADIUS)
     }
 
-    pub fn collect(&mut self, area: f32) {
-        if area.is_finite() && area > 0.0 {
-            self.area = (self.area + area)
-                .min(std::f32::consts::PI * MAX_RADIUS * MAX_RADIUS);
-        }
+    /// Returns the area actually absorbed, so a full ball leaves the snow intact.
+    pub fn collect(&mut self, area: f32) -> f32 {
+        let taken = area.min(std::f32::consts::PI * MAX_RADIUS * MAX_RADIUS - self.area);
+        self.area += taken;
+        taken
     }
 
     pub fn is_formed(self) -> bool {
@@ -131,7 +129,7 @@ pub fn try_stack(balls: &mut [Snowball], moving_id: u64) -> bool {
         }
         let child_radius = moving.radius();
         let parent_radius = parent.radius();
-        if child_radius >= parent_radius * 0.94 {
+        if child_radius >= parent_radius || moving.y >= parent.y {
             continue;
         }
         let target_x = parent.x;
@@ -154,7 +152,6 @@ pub fn try_stack(balls: &mut [Snowball], moving_id: u64) -> bool {
     if let Some(ball) = balls.iter_mut().find(|b| b.id == moving_id) {
         ball.parent = Some(parent_id);
         ball.grounded = false;
-        ball.vx = 0.0;
         ball.vy = 0.0;
     }
     move_with_children(balls, moving_id, target_x, target_y);
@@ -213,6 +210,25 @@ mod tests {
         assert!(try_stack(&mut balls, 3));
         balls.push(made(4, 100.0, 406.0, 7.0, false));
         assert!(!try_stack(&mut balls, 4));
+    }
+
+    #[test]
+    fn a_ball_can_snap_from_above_but_not_from_the_ground() {
+        let mut balls = [
+            made(1, 100.0, 490.0, 22.0, true),
+            made(2, 105.0, 502.0, 21.5, false),
+        ];
+        assert!(!try_stack(&mut balls, 2));
+        balls[1].y = 452.0;
+        assert!(try_stack(&mut balls, 2));
+    }
+
+    #[test]
+    fn collection_stops_at_the_maximum_area() {
+        let mut ball = Snowball::new(1, 0.0, 0.0);
+        let limit = std::f32::consts::PI * MAX_RADIUS * MAX_RADIUS;
+        assert_eq!(ball.collect(limit + 100.0), limit);
+        assert_eq!(ball.collect(10.0), 0.0);
     }
 
     #[test]
