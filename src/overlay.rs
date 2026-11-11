@@ -1384,6 +1384,7 @@ impl Engine {
         } else {
             0.0
         };
+        self.advance_balls(now, paused, sleeping, s);
         let snowfall =
             weather.snow * s.accumulation * 0.85 - weather.temperature.max(0.0) * s.melt * 0.035;
         let rate = if s.caps { snowfall } else { 0.0 };
@@ -1424,6 +1425,8 @@ impl Engine {
         };
         let mut diag = Diagnostics {
             tracked: self.caps.len(),
+            snowballs: self.balls.len(),
+            snowmen: self.balls.iter().filter(|ball| snowball::is_head_of_snowman(&self.balls, ball.id)).count(),
             reason: "Нет видимых эффектов",
             monitors: self
                 .displays
@@ -1451,6 +1454,8 @@ impl Engine {
             .iter()
             .any(|display| display.name == s.monitor);
         let mut active = Vec::new();
+        let mut cap_hits = Vec::new();
+        let mut ball_hits = Vec::new();
         if !paused && !sleeping {
             for display in &self.displays {
                 if selected_exists && s.monitor != display.name {
@@ -1527,7 +1532,14 @@ impl Engine {
                 } else {
                     Vec::new()
                 };
-                if count == 0 && edges.is_empty() && !has_clumps && bottom.is_none() {
+                let balls_here = s.snowballs && self.balls.iter().any(|ball| {
+                    let radius = ball.radius();
+                    ball.x + radius >= bounds.left as f32
+                        && ball.x - radius < bounds.right as f32
+                        && ball.y + radius >= bounds.top as f32
+                        && ball.y - radius < bounds.bottom as f32
+                });
+                if count == 0 && edges.is_empty() && !has_clumps && bottom.is_none() && !balls_here {
                     continue;
                 }
                 let name = &display.name;
@@ -1559,6 +1571,7 @@ impl Engine {
                         &mut self.caps,
                         bottom,
                         &falling_clumps,
+                        &self.balls,
                         &mut self.random,
                         cap_changed || self.changed,
                     );
@@ -1570,6 +1583,37 @@ impl Engine {
                     diag.particles += count + falling_clumps.len();
                     caps_drawn += canvas.cap_count;
                     diag.bottom_edges += usize::from(bottom.is_some());
+                    if s.snowballs {
+                        for &(index, rect, shape) in &edges {
+                            if shape.depth >= 2.0 {
+                                let obstacles = self.windows[..index].iter()
+                                    .filter(|window| window.visible && window.bounds.intersects(rect))
+                                    .map(|window| window.bounds)
+                                    .collect();
+                                cap_hits.push(CapHit {
+                                    id: self.windows[index].id,
+                                    bounds: rect,
+                                    height: shape.depth,
+                                    obstacles,
+                                });
+                            }
+                        }
+                        for ball in &self.balls {
+                            let radius = ball.radius();
+                            if ball.x + radius >= bounds.left as f32
+                                && ball.x - radius < bounds.right as f32
+                                && ball.y + radius >= bounds.top as f32
+                                && ball.y - radius < bounds.bottom as f32
+                            {
+                                ball_hits.push(BallHit {
+                                    id: ball.id,
+                                    x: ball.x,
+                                    y: ball.y,
+                                    radius,
+                                });
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1578,6 +1622,23 @@ impl Engine {
                 canvas.hide();
             }
         }
+        EVENTS.with_borrow_mut(|events| {
+            events.cap_hits = cap_hits;
+            events.ball_hits = ball_hits.clone();
+            if paused || sleeping || !s.snowballs {
+                events.mouse_capturing = false;
+                events.mouse.clear();
+            }
+        });
+        if paused || sleeping || !s.snowballs {
+            self.gesture = None;
+        }
+        diag.moving_balls = !paused && !sleeping && s.snowballs
+            && (self.gesture.is_some()
+                || self.balls.iter().any(|ball| {
+                    ball.parent.is_none() && !ball.grounded
+                        && ball_hits.iter().any(|hit| hit.id == ball.id)
+                }));
         self.changed = false;
         if painted {
             self.frames += 1;
@@ -1593,14 +1654,14 @@ impl Engine {
             "Экран заблокирован или выключен"
         } else if paused {
             "Эффекты на паузе"
-        } else if diag.particles > 0 || diag.caps > 0 || diag.bottom_edges > 0 {
+        } else if diag.particles > 0 || diag.caps > 0 || diag.bottom_edges > 0 || !ball_hits.is_empty() {
             "Эффекты включены"
         } else if fullscreen {
             "Полноэкранное приложение"
         } else {
             "Нет видимых эффектов"
         };
-        diag.fps = if diag.particles > 0 || diag.caps > 0 || diag.bottom_edges > 0 {
+        diag.fps = if diag.particles > 0 || diag.caps > 0 || diag.bottom_edges > 0 || !ball_hits.is_empty() {
             self.fps
         } else {
             0
@@ -1740,6 +1801,7 @@ impl Canvas {
         caps: &mut HashMap<usize, Cap>,
         bottom: Option<SnowCap>,
         falling_clumps: &[&SnowParticle],
+        balls: &[Snowball],
         seed: &mut u32,
         rebuild_caps: bool,
     ) -> bool {
@@ -1769,6 +1831,9 @@ impl Canvas {
                 }
                 self.touched.push(index);
             }
+        }
+        if s.snowballs {
+            self.draw_balls(balls);
         }
         self.count = count;
         self.flakes.truncate(count);
@@ -1841,6 +1906,82 @@ impl Canvas {
         }
     }
 
+    fn draw_balls(&mut self, balls: &[Snowball]) {
+        let mut sorted: Vec<_> = balls.iter().copied().collect();
+        // Draw ground-level bases before their smaller middle and head sections.
+        sorted.sort_by(|a, b| b.y.total_cmp(&a.y));
+        for ball in sorted {
+            let radius = ball.radius();
+            if ball.x + radius < self.bounds.left as f32
+                || ball.x - radius >= self.bounds.right as f32
+                || ball.y + radius < self.bounds.top as f32
+                || ball.y - radius >= self.bounds.bottom as f32
+            {
+                continue;
+            }
+            self.draw_sphere(ball);
+            if snowball::is_head_of_snowman(balls, ball.id) {
+                let x = ball.x - self.bounds.left as f32;
+                let y = ball.y - self.bounds.top as f32;
+                self.colored_disc(x - radius * 0.22, y - radius * 0.14, (radius * 0.10).max(1.5), [37, 52, 66]);
+                self.colored_disc(x + radius * 0.20, y - radius * 0.14, (radius * 0.10).max(1.5), [37, 52, 66]);
+                self.colored_disc(x + radius * 0.09, y + radius * 0.05, (radius * 0.15).max(2.0), [237, 122, 58]);
+            } else if balls.iter().any(|child| child.parent == Some(ball.id)
+                && snowball::is_head_of_snowman(balls, child.id))
+            {
+                let x = ball.x - self.bounds.left as f32;
+                let y = ball.y - self.bounds.top as f32;
+                self.colored_disc(x, y, (radius * 0.08).max(1.6), [50, 68, 82]);
+                self.colored_disc(x, y + radius * 0.35, (radius * 0.08).max(1.6), [50, 68, 82]);
+            }
+        }
+    }
+
+    fn draw_sphere(&mut self, ball: Snowball) {
+        let x = ball.x - self.bounds.left as f32;
+        let y = ball.y - self.bounds.top as f32;
+        let r = ball.radius();
+        let ext = (r + 1.0).ceil() as i32;
+        for dy in -ext..=ext {
+            for dx in -ext..=ext {
+                let (fx, fy) = (dx as f32, dy as f32);
+                let dist = fx.hypot(fy);
+                let coverage = (r + 0.5 - dist).clamp(0.0, 1.0);
+                if coverage <= 0.0 {
+                    continue;
+                }
+                let volume = (1.0 - (dist / r).powi(2)).max(0.0).sqrt();
+                let highlight = (1.0 - (fx + r * 0.35).hypot(fy + r * 0.40) / (2.0 * r))
+                    .clamp(0.0, 1.0);
+                let light = (volume * 20.0 + highlight * 17.0 - (fy / r).max(0.0) * 26.0);
+                let alpha = (255.0 * coverage).round() as u32;
+                let rr = (219.0 + light).clamp(0.0, 255.0) as u32 * alpha / 255;
+                let gg = (230.0 + light).clamp(0.0, 255.0) as u32 * alpha / 255;
+                let bb = (240.0 + light).clamp(0.0, 255.0) as u32 * alpha / 255;
+                self.pixel(x as i32 + dx, y as i32 + dy,
+                    (alpha << 24) | (rr << 16) | (gg << 8) | bb);
+            }
+        }
+    }
+
+    fn colored_disc(&mut self, x: f32, y: f32, r: f32, rgb: [u8; 3]) {
+        let extent = r.ceil() as i32;
+        for dy in -extent..=extent {
+            for dx in -extent..=extent {
+                let coverage = (r + 0.5 - (dx as f32).hypot(dy as f32)).clamp(0.0, 1.0);
+                let alpha = (255.0 * coverage).round() as u32;
+                if alpha == 0 { continue; }
+                self.pixel(
+                    x as i32 + dx, y as i32 + dy,
+                    (alpha << 24)
+                        | ((rgb[0] as u32 * alpha / 255) << 16)
+                        | ((rgb[1] as u32 * alpha / 255) << 8)
+                        | (rgb[2] as u32 * alpha / 255),
+                );
+            }
+        }
+    }
+
     fn draw_particle(&mut self, x: f32, y: f32, radius: f32, opacity: f32) {
         let extent = radius.ceil() as i32;
         for dy in -extent..=extent {
@@ -1877,7 +2018,7 @@ impl Canvas {
                 .map(|other| other.bounds)
                 .collect();
             let mut drawn = false;
-            for &(x, y, pixel) in CapBitmap::pixels(&mut cap.bitmap, shape) {
+            for &(x, y, pixel) in CapBitmap::pixels(&mut cap.bitmap, shape, &cap.removed) {
                 let x = x + window.left;
                 let y = y + window.top;
                 if bounds.contains(x, y) && !obstacles.iter().any(|other| other.contains(x, y)) {
@@ -1893,7 +2034,7 @@ impl Canvas {
         // The profile's baseline sits just outside the last visible screen row.
         let height = self.bounds.height();
         let mut bitmap = self.bottom_bitmap.take();
-        for &(x, y, pixel) in CapBitmap::pixels(&mut bitmap, shape) {
+        for &(x, y, pixel) in CapBitmap::pixels(&mut bitmap, shape, &[]) {
             if y < 0 {
                 self.pixel(x - BOTTOM_INSET, height + y, pixel);
             }
