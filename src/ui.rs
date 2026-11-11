@@ -203,28 +203,53 @@ impl App {
 
     fn home(&mut self, ui: &mut Ui, diag: &Diagnostics) {
         ui.horizontal(|ui| {
-            glass::chip(ui, |ui| {
-                ui.heading(RichText::new("Зимняя атмосфера").size(30.0).strong());
+            ui.vertical(|ui| {
+                ui.label(
+                    RichText::new("ДОБРО ПОЖАЛОВАТЬ")
+                        .size(11.0)
+                        .color(ACCENTS[self.settings.accent])
+                        .strong(),
+                );
+                ui.add_space(3.0);
+                ui.label(
+                    RichText::new("Зимняя атмосфера")
+                        .size(27.0)
+                        .color(Color32::from_rgb(241, 247, 253))
+                        .strong(),
+                );
+                ui.label(
+                    RichText::new("Управляй снегом на своём рабочем столе")
+                        .size(12.0)
+                        .color(MUTED),
+                );
             });
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let (icon, label) = if self.paused {
-                    (Icon::Play, "Продолжить")
-                } else {
-                    (Icon::Pause, "Пауза")
-                };
-                if ui
-                    .add(
-                        self.icons
-                            .button(icon, label, ACCENTS[self.settings.accent])
-                            .fill(Color32::from_rgba_unmultiplied(21, 38, 63, 225)),
-                    )
-                    .clicked()
-                {
-                    self.paused = !self.paused;
-                }
-            });
+            ui.with_layout(
+                egui::Layout::right_to_left(egui::Align::Center),
+                |ui| {
+                    let label = if self.paused { "▶  Продолжить" } else { "Ⅱ  Пауза" };
+                    if ui.add(
+                        egui::Button::new(
+                            RichText::new(label)
+                                .color(Color32::from_rgb(11, 32, 51))
+                                .strong()
+                                .size(13.0),
+                        )
+                        .fill(ACCENTS[self.settings.accent])
+                        .stroke(egui::Stroke::NONE)
+                        .min_size(egui::vec2(115.0, 38.0)),
+                    ).clicked() {
+                        self.paused = !self.paused;
+                    }
+                },
+            );
         });
+        ui.add_space(15.0);
         glass::surface(ui, self.settings.glass, false, |ui| {
+            let conditions = weather::conditions(
+                &self.settings,
+                self.observation.as_ref(),
+                Instant::now(),
+            );
             ui.horizontal(|ui| {
                 ui.vertical(|ui| {
                     ui.label(
@@ -234,63 +259,113 @@ impl App {
                             "РУЧНОЙ РЕЖИМ"
                         })
                         .color(ACCENTS[self.settings.accent])
-                        .size(12.0)
+                        .size(11.0)
                         .strong(),
                     );
-                    let c = weather::conditions(
-                        &self.settings,
-                        self.observation.as_ref(),
-                        Instant::now(),
-                    );
-                    let has_weather = !self.settings.real_weather || self.observation.is_some();
-                    let title = match (&self.observation, self.settings.real_weather) {
-                        (Some(obs), true) => obs.city.as_str(),
-                        (None, true) => "Погода не загружена",
-                        (_, false) => "Снег по вашим настройкам",
+                    ui.add_space(3.0);
+                    let city = if self.settings.real_weather {
+                        self.observation.as_ref()
+                            .map_or("Погода не загружена", |obs| obs.city.as_str())
+                    } else {
+                        "Снег по вашим настройкам"
                     };
-                    ui.label(RichText::new(title).size(19.0).strong());
-                    if has_weather {
-                        let t = self
-                            .observation
-                            .as_ref()
-                            .filter(|_| self.settings.real_weather)
-                            .map_or(c.temperature, |obs| obs.current.temp_c);
-                        ui.label(RichText::new(format!("{t:+.1} °C")).size(45.0).strong());
+                    ui.label(RichText::new(city).size(16.0).strong());
+                    if self.settings.real_weather {
+                        if let Some(obs) = &self.observation {
+                            ui.label(
+                                RichText::new(&obs.current.condition.text)
+                                    .size(12.0)
+                                    .color(MUTED),
+                            );
+                        }
+                    } else {
+                        ui.label(
+                            RichText::new("Управление независимо от WeatherAPI")
+                                .size(12.0)
+                                .color(MUTED),
+                        );
                     }
-                    if let Some(text) = &self.weather_error {
-                        ui.label(RichText::new(text).color(WARN));
+                    if let Some(error) = &self.weather_error {
+                        ui.label(RichText::new(error).color(WARN).size(11.0));
                     }
-                    ui.label(RichText::new(diag.reason).color(MUTED));
                 });
-                if ui.available_width() >= 115.0 {
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let c = weather::conditions(
-                            &self.settings,
-                            self.observation.as_ref(),
-                            Instant::now(),
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                    let temperature = self.observation.as_ref()
+                        .filter(|_| self.settings.real_weather)
+                        .map(|obs| obs.current.temp_c)
+                        .unwrap_or(conditions.temperature);
+                    if !self.settings.real_weather || self.observation.is_some() {
+                        ui.label(
+                            RichText::new(format!("{temperature:+.1}°"))
+                                .size(33.0)
+                                .strong()
+                                .color(Color32::from_rgb(246, 251, 255)),
                         );
-                        scene(
-                            ui,
-                            !self.paused && self.settings.falling && c.snow > 0.0,
-                            !self.paused && self.settings.caps && c.snow > 0.0,
-                            &self.settings,
-                            &mut self.cap_preview,
-                        );
-                    });
-                }
+                    }
+                });
+            });
+            ui.add_space(11.0);
+            egui::Frame::new()
+                .fill(Color32::from_rgb(17, 33, 54))
+                .stroke(egui::Stroke::new(1.0, Color32::from_rgb(53, 83, 109)))
+                .corner_radius(11)
+                .inner_margin(egui::Margin::symmetric(4, 4))
+                .show(ui, |ui| {
+                    // A static illustration, intentionally decoupled from actual
+                    // snowfall. No fake "currently snowing" visual state.
+                    scene(ui, true, true, &self.settings, &mut self.cap_preview);
+                });
+            ui.add_space(7.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.label(
+                    RichText::new("Демонстрация снежных эффектов")
+                        .size(11.0).color(MUTED),
+                );
+                ui.label(
+                    RichText::new("·")
+                        .size(11.0).color(MUTED),
+                );
+                let status = if !self.settings.real_weather {
+                    "Ручная погода"
+                } else if let Some(obs) = &self.observation {
+                    if obs.age() >= weather::MAX_AGE {
+                        "Погодные данные устарели"
+                    } else if obs.cached {
+                        "Сохранённые данные"
+                    } else {
+                        "Погодные данные получены"
+                    }
+                } else {
+                    "Нет данных WeatherAPI"
+                };
+                ui.label(RichText::new(status).size(11.0).color(MUTED));
             });
         });
+        ui.add_space(5.0);
         glass::surface(ui, self.settings.glass, false, |ui| {
-            ui.heading("Быстрое управление");
-            ui.spacing_mut().item_spacing.y = 4.0;
+            ui.label(
+                RichText::new("Быстрое управление")
+                    .size(16.0)
+                    .strong()
+                    .color(Color32::from_rgb(241, 247, 253)),
+            );
+            ui.add_space(7.0);
             glass::toggle(ui, &mut self.settings.falling, "Снегопад");
-            glass::toggle(ui, &mut self.settings.caps, "Снежные шапки на окнах");
+            ui.separator();
+            glass::toggle(ui, &mut self.settings.caps, "Снежные шапки");
+            ui.separator();
             glass::toggle(
                 ui,
                 &mut self.settings.real_weather,
                 "Синхронизация с погодой",
             );
         });
+        ui.add_space(7.0);
+        ui.label(
+            RichText::new(format!("Состояние движка: {}", diag.reason))
+                .color(MUTED)
+                .size(11.0),
+        );
     }
 
     fn effects(&mut self, ui: &mut Ui) {
@@ -965,11 +1040,11 @@ fn resize_grips(ctx: &egui::Context, frame: egui::Rect) {
 }
 
 fn heading(ui: &mut Ui, title: &str, subtitle: &str) {
-    glass::chip(ui, |ui| {
-        ui.spacing_mut().item_spacing.y = 4.0;
-        ui.heading(RichText::new(title).size(28.0).strong());
-        ui.label(RichText::new(subtitle).color(MUTED));
-    });
+    ui.label(RichText::new("SNOWY NEW YEAR  /  НАСТРОЙКИ").color(Color32::from_rgb(141, 217, 246)).size(10.0).strong());
+    ui.add_space(3.0);
+    ui.label(RichText::new(title).size(26.0).strong());
+    ui.label(RichText::new(subtitle).size(12.0).color(MUTED));
+    ui.add_space(15.0);
 }
 
 fn scene(
@@ -980,8 +1055,8 @@ fn scene(
     preview: &mut Option<(SnowCap, egui::TextureHandle)>,
 ) {
     let accent = settings.accent;
-    let width = ui.available_width().min(250.0);
-    let (r, _) = ui.allocate_exact_size(egui::vec2(width, 132.0), egui::Sense::hover());
+    let width = ui.available_width().max(160.0);
+    let (r, _) = ui.allocate_exact_size(egui::vec2(width, 154.0), egui::Sense::hover());
     let p = ui.painter_at(r);
     p.rect_filled(r, 18, Color32::from_rgba_unmultiplied(8, 22, 45, 176));
     p.rect_stroke(
