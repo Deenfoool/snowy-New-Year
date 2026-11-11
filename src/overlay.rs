@@ -1615,7 +1615,7 @@ impl Engine {
                     caps_drawn += canvas.cap_count;
                     diag.bottom_edges += usize::from(bottom.is_some());
                     if s.snowballs {
-                        for &(index, rect, shape) in &edges {
+                        for &(index, rect, shape) in &canvas.edges {
                             let window_id = self.windows[index].id;
                             if shape.depth < 2.0 {
                                 continue;
@@ -2002,7 +2002,7 @@ impl Canvas {
                 let volume = (1.0 - (dist / r).powi(2)).max(0.0).sqrt();
                 let highlight = (1.0 - (fx + r * 0.35).hypot(fy + r * 0.40) / (2.0 * r))
                     .clamp(0.0, 1.0);
-                let light = (volume * 20.0 + highlight * 17.0 - (fy / r).max(0.0) * 26.0);
+                let light = volume * 20.0 + highlight * 17.0 - (fy / r).max(0.0) * 26.0;
                 let alpha = (255.0 * coverage).round() as u32;
                 let rr = (219.0 + light).clamp(0.0, 255.0) as u32 * alpha / 255;
                 let gg = (230.0 + light).clamp(0.0, 255.0) as u32 * alpha / 255;

@@ -817,8 +817,8 @@ impl App {
     fn titlebar(&mut self, root: &mut Ui) {
         let ctx = root.ctx().clone();
         let maximized = ctx.input(|input| input.viewport().maximized.unwrap_or(false));
-        egui::TopBottomPanel::top("snowy-titlebar")
-            .exact_height(54.0)
+        egui::Panel::top("snowy-titlebar")
+            .exact_size(54.0)
             .frame(
                 egui::Frame::new()
                     .fill(Color32::from_rgb(16, 28, 44))
