@@ -1,6 +1,5 @@
 use crate::{
     glass::{self, MUTED},
-    glass_backdrop::{self, Backdrop},
     icons::{self, Icon, Icons},
     overlay::{Action, Diagnostics, Overlay},
     settings::{self, Settings},
@@ -44,7 +43,6 @@ type WeatherReply = (String, Result<Observation, String>);
 
 pub struct App {
     icons: Icons,
-    backdrop: Option<Backdrop>,
     overlay: Overlay,
     settings: Settings,
     page: usize,
@@ -99,7 +97,6 @@ impl App {
         glass::configure_window(cc);
         Ok(Self {
             icons: Icons::load(&cc.egui_ctx),
-            backdrop: Backdrop::new(cc),
             hide_on_start: startup && overlay.tray_ready,
             hidden: false,
             exiting: false,
@@ -130,9 +127,6 @@ impl App {
 
     fn hide(&mut self, ctx: &egui::Context) {
         self.hidden = true;
-        if let Some(backdrop) = &self.backdrop {
-            backdrop.hide();
-        }
         ctx.send_viewport_cmd(ViewportCommand::Visible(false));
     }
 
@@ -636,7 +630,7 @@ impl App {
 
 impl eframe::App for App {
     fn clear_color(&self, _: &egui::Visuals) -> [f32; 4] {
-        [0.0; 4]
+        [11.0 / 255.0, 20.0 / 255.0, 34.0 / 255.0, 1.0]
     }
 
     fn logic(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
@@ -664,7 +658,6 @@ impl eframe::App for App {
             return;
         }
         let ctx = root.ctx().clone();
-        glass_backdrop::begin_frame(self.backdrop.is_some());
         let previous = self.settings.clone();
         let previous_pause = self.paused;
         let diag = self.overlay.shared.lock().unwrap().diagnostics.clone();
@@ -680,35 +673,51 @@ impl eframe::App for App {
                 0.0
             };
         }
-        let compact = root.available_width() < 710.0;
+        // The full settings window is a real, opaque Rust/egui UI.
+        // Effects remain in the separate click-through Win32 overlay.
+        root.painter().rect_filled(
+            root.max_rect(),
+            0.0,
+            Color32::from_rgb(11, 20, 34),
+        );
+        self.titlebar(root);
+        let compact = root.available_width() < 785.0;
         egui::Panel::left("navigation")
             .resizable(false)
-            .exact_size(if compact { 77.0 } else { 246.0 })
+            .exact_size(if compact { 70.0 } else { 190.0 })
             .show_separator_line(false)
-            .frame(egui::Frame::new().inner_margin(egui::Margin {
-                left: 13,
-                right: 6,
-                top: 13,
-                bottom: 13,
-            }))
+            .frame(
+                egui::Frame::new()
+                    .fill(Color32::from_rgb(16, 28, 44))
+                    .stroke(egui::Stroke::new(1.0, Color32::from_rgb(37, 58, 80)))
+                    .inner_margin(egui::Margin {
+                        left: 10,
+                        right: 10,
+                        top: 15,
+                        bottom: 12,
+                    }),
+            )
             .show(root, |ui| {
-                glass::surface(ui, self.settings.glass, true, |ui| {
-                    ui.set_min_height(ui.available_height());
-                    self.navigation(ui, compact, accent, &diag);
-                });
+                ui.set_min_height(ui.available_height());
+                self.navigation(ui, compact, accent, &diag);
             });
         egui::CentralPanel::default()
-            .frame(egui::Frame::new().inner_margin(egui::Margin {
-                left: 13,
-                right: 23,
-                top: 22,
-                bottom: 16,
-            }))
+            .frame(
+                egui::Frame::new()
+                    .fill(Color32::from_rgb(11, 20, 34))
+                    .inner_margin(egui::Margin {
+                        left: 28,
+                        right: 28,
+                        top: 23,
+                        bottom: 18,
+                    }),
+            )
             .show(root, |ui| {
                 egui::ScrollArea::vertical()
                     .id_salt(self.page)
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
+                        ui.set_min_width(ui.available_width());
                         match self.page {
                             0 => self.home(ui, &diag),
                             1 => self.effects(ui),
@@ -718,19 +727,86 @@ impl eframe::App for App {
                             _ => self.system(ui, &diag),
                         }
                         if !self.notice.is_empty() {
+                            ui.add_space(10.0);
                             ui.label(RichText::new(&self.notice).color(WARN));
                         }
                     });
             });
+        resize_grips(&ctx, root.max_rect());
         ctx.request_repaint_after(Duration::from_secs(1));
-        if let Some(backdrop) = &mut self.backdrop {
-            backdrop.update(&ctx);
-        }
         self.sync(&ctx, previous, previous_pause);
     }
 }
 
 impl App {
+    fn titlebar(&mut self, root: &mut Ui) {
+        let ctx = root.ctx().clone();
+        let maximized = ctx.input(|input| input.viewport().maximized.unwrap_or(false));
+        egui::TopBottomPanel::top("snowy-titlebar")
+            .exact_height(54.0)
+            .frame(
+                egui::Frame::new()
+                    .fill(Color32::from_rgb(16, 28, 44))
+                    .stroke(egui::Stroke::new(1.0, Color32::from_rgb(48, 67, 88)))
+                    .inner_margin(egui::Margin {
+                        left: 17,
+                        right: 12,
+                        top: 8,
+                        bottom: 8,
+                    }),
+            )
+            .show(root, |ui| {
+                ui.horizontal_centered(|ui| {
+                    let accent = ACCENTS[self.settings.accent];
+                    ui.add(self.icons.image(Icon::Snowflake, 23.0, accent));
+                    ui.add_space(5.0);
+                    ui.label(
+                        RichText::new("Snowy New Year")
+                            .size(16.0)
+                            .color(Color32::from_rgb(241, 247, 253))
+                            .strong(),
+                    );
+                    ui.add_space(8.0);
+                    ui.label(
+                        RichText::new("WINTER DESKTOP")
+                            .size(9.0)
+                            .color(Color32::from_rgb(123, 153, 181)),
+                    );
+                    let drag_width = (ui.available_width() - 112.0).max(12.0);
+                    let drag = ui.allocate_response(
+                        egui::vec2(drag_width, 33.0),
+                        egui::Sense::click_and_drag(),
+                    );
+                    if drag.drag_started() {
+                        ctx.send_viewport_cmd(ViewportCommand::StartDrag);
+                    }
+                    if drag.double_clicked() {
+                        ctx.send_viewport_cmd(ViewportCommand::Maximized(!maximized));
+                    }
+                    let button = |ui: &mut Ui, title: &str| {
+                        ui.add(
+                            egui::Button::new(RichText::new(title).size(17.0))
+                                .frame(false)
+                                .min_size(egui::vec2(32.0, 31.0)),
+                        )
+                    };
+                    if button(ui, "−").on_hover_text("Свернуть").clicked() {
+                        ctx.send_viewport_cmd(ViewportCommand::Minimized(true));
+                    }
+                    if button(ui, if maximized { "❐" } else { "□" })
+                        .on_hover_text(if maximized { "Восстановить" } else { "Развернуть" })
+                        .clicked()
+                    {
+                        ctx.send_viewport_cmd(ViewportCommand::Maximized(!maximized));
+                    }
+                    if button(ui, "×").on_hover_text("Закрыть в трей").clicked() {
+                        // Keep eframe's normal close-request flow and user preference.
+                        ctx.send_viewport_cmd(ViewportCommand::Close);
+                    }
+                });
+            });
+    }
+
     fn navigation(&mut self, ui: &mut Ui, compact: bool, accent: Color32, diag: &Diagnostics) {
         ui.add_space(6.0);
         ui.horizontal(|ui| {
@@ -842,6 +918,48 @@ impl Drop for App {
     fn drop(&mut self) {
         if self.saving_at.is_some() {
             self.save();
+        }
+    }
+}
+
+/// Borderless frame still supports pointer resizing on all 8 edges.
+fn resize_grips(ctx: &egui::Context, frame: egui::Rect) {
+    let maximized = ctx.input(|input| input.viewport().maximized.unwrap_or(false));
+    if maximized {
+        return;
+    }
+    let pointer = ctx.input(|input| input.pointer.hover_pos());
+    let Some(pos) = pointer else { return };
+    if !frame.contains(pos) { return; }
+    let border = 6.0;
+    let left = pos.x <= frame.left() + border;
+    let right = pos.x >= frame.right() - border;
+    let top = pos.y <= frame.top() + border;
+    let bottom = pos.y >= frame.bottom() - border;
+    use egui::viewport::ResizeDirection;
+    let result = if top && left {
+        Some((ResizeDirection::NorthWest, egui::CursorIcon::ResizeNwSe))
+    } else if top && right {
+        Some((ResizeDirection::NorthEast, egui::CursorIcon::ResizeNeSw))
+    } else if bottom && left {
+        Some((ResizeDirection::SouthWest, egui::CursorIcon::ResizeNeSw))
+    } else if bottom && right {
+        Some((ResizeDirection::SouthEast, egui::CursorIcon::ResizeNwSe))
+    } else if left {
+        Some((ResizeDirection::West, egui::CursorIcon::ResizeHorizontal))
+    } else if right {
+        Some((ResizeDirection::East, egui::CursorIcon::ResizeHorizontal))
+    } else if top {
+        Some((ResizeDirection::North, egui::CursorIcon::ResizeVertical))
+    } else if bottom {
+        Some((ResizeDirection::South, egui::CursorIcon::ResizeVertical))
+    } else {
+        None
+    };
+    if let Some((edge, cursor)) = result {
+        ctx.set_cursor_icon(cursor);
+        if ctx.input(|input| input.pointer.primary_pressed()) {
+            ctx.send_viewport_cmd(ViewportCommand::BeginResize(edge));
         }
     }
 }
