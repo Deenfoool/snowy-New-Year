@@ -13,6 +13,28 @@ pub struct SnowCap {
     pub wind_bias: f32,
 }
 
+/// Advance ice over elapsed real time, independently from rendering FPS.
+/// No frame-by-frame simulation is needed while a window is hidden.
+pub fn advance_ice_fraction(
+    current: f32,
+    temperature: f32,
+    snow_depth: f32,
+    elapsed_seconds: f32,
+    enabled: bool,
+) -> f32 {
+    if !enabled {
+        return 0.0;
+    }
+    let seconds = elapsed_seconds.max(0.0).min(6.0 * 3600.0);
+    if temperature <= 0.0 && snow_depth >= 5.0 {
+        let growth = (1.0 + temperature.abs() * 0.07).min(2.5);
+        (current + seconds * growth / 180.0).clamp(0.0, 1.0)
+    } else {
+        let melt = (1.0 + temperature.max(0.0) * 0.25).min(4.0);
+        (current - seconds * melt / 100.0).clamp(0.0, 1.0)
+    }
+}
+
 impl SnowCap {
     pub fn rows(&self) -> Range<i32> {
         -(self.depth.ceil() as i32)
@@ -193,7 +215,7 @@ fn argb(rgb: [f32; 3], alpha: f32) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use super::SnowCap;
+    use super::{advance_ice_fraction, SnowCap};
 
     #[test]
     fn rolling_removes_snow_only_from_touched_segments() {
@@ -240,6 +262,17 @@ mod tests {
         cap.wind_bias = -0.8;
         assert!(downwind > cap.sample_height(390.0));
         assert!(upwind < cap.sample_height(110.0));
+    }
+
+    #[test]
+    fn ice_growth_and_melting_are_time_based_and_bounded() {
+        let frozen = advance_ice_fraction(0.0, -5.0, 20.0, 180.0, true);
+        assert!(frozen > 0.9 && frozen <= 1.0);
+        let thawed = advance_ice_fraction(frozen, 5.0, 20.0, 60.0, true);
+        assert!(thawed < frozen);
+        assert_eq!(advance_ice_fraction(0.8, -5.0, 20.0, 3.0, false), 0.0);
+        assert_eq!(advance_ice_fraction(0.0, -5.0, 0.0, 20.0, true), 0.0);
+        assert_eq!(advance_ice_fraction(1.0, -10.0, 20.0, 1000.0, true), 1.0);
     }
 
     #[test]
