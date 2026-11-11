@@ -2,9 +2,9 @@
 $ErrorActionPreference = 'Stop'
 
 $checks = @(
-    @{ title = 'Rust formatting'; args = @('fmt','--all','--','--check') },
     @{ title = 'Unit tests'; args = @('test','--locked') },
-    @{ title = 'Release build'; args = @('build','--release','--locked') }
+    @{ title = 'Release build'; args = @('build','--release','--locked') },
+    @{ title = 'Rust formatting'; args = @('fmt','--all','--','--check') }
 )
 
 foreach ($check in $checks) {
@@ -16,5 +16,5 @@ foreach ($check in $checks) {
     }
 }
 Write-Host ''
-Write-Host 'Formatting, tests and release compilation passed.' -ForegroundColor Green
+Write-Host 'Unit tests, release compilation and formatting passed.' -ForegroundColor Green
 Write-Host 'Manual Windows GUI and mouse checks are still required.'
