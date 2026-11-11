@@ -45,10 +45,14 @@ pub fn configure_window(cc: &eframe::CreationContext<'_>) {
 pub fn style() -> egui::Style {
     let mut style = egui::Style::default();
     style.visuals = egui::Visuals::dark();
-    style.visuals.panel_fill = Color32::from_rgb(14, 23, 43);
-    style.visuals.window_fill = Color32::from_rgb(22, 33, 55);
-    style.visuals.override_text_color = Some(TEXT);
-    style.visuals.extreme_bg_color = Color32::from_rgba_unmultiplied(9, 16, 34, 195);
+    // The main window itself is always opaque: no unintended desktop bleed-through.
+    // Glass-like depth is rendered by the individual cards, not by the swapchain.
+    style.visuals.panel_fill = Color32::from_rgb(11, 20, 34);
+    style.visuals.window_fill = Color32::from_rgb(23, 43, 64);
+    style.visuals.override_text_color = Some(Color32::from_rgb(241, 247, 253));
+    style.visuals.extreme_bg_color = Color32::from_rgb(16, 31, 47);
+    style.visuals.selection.bg_fill = Color32::from_rgb(37, 70, 94);
+    style.visuals.selection.stroke = Stroke::new(1.0, Color32::from_rgb(141, 217, 246));
     for (widget, fill, rim) in [
         (&mut style.visuals.widgets.inactive, 21, 34),
         (&mut style.visuals.widgets.hovered, 37, 78),
@@ -63,8 +67,8 @@ pub fn style() -> egui::Style {
     }
     style.visuals.widgets.noninteractive.bg_stroke =
         Stroke::new(1.0, Color32::from_white_alpha(30));
-    style.spacing.item_spacing = egui::vec2(11.0, 12.0);
-    style.spacing.interact_size.y = 32.0;
+    style.spacing.item_spacing = egui::vec2(10.0, 12.0);
+    style.spacing.interact_size.y = 34.0;
     style.spacing.button_padding = egui::vec2(11.0, 6.0);
     style
         .text_styles
@@ -76,19 +80,12 @@ pub fn style() -> egui::Style {
 }
 
 pub fn chip(ui: &mut Ui, content: impl FnOnce(&mut Ui)) {
-    let opacity = if crate::glass_backdrop::has_material() {
-        166
-    } else {
-        222
-    };
-    let response = egui::Frame::new()
-        .fill(Color32::from_rgba_unmultiplied(14, 25, 43, opacity))
-        .stroke(Stroke::new(1.0, Color32::from_white_alpha(42)))
-        .corner_radius(16)
-        .inner_margin(egui::Margin::symmetric(12, 7))
-        .show(ui, content)
-        .response;
-    crate::glass_backdrop::record(response.rect, ui.clip_rect(), 16);
+    egui::Frame::new()
+        .fill(Color32::from_rgba_unmultiplied(23, 43, 64, 244))
+        .stroke(Stroke::new(1.0, Color32::from_rgb(48, 67, 88)))
+        .corner_radius(11)
+        .inner_margin(egui::Margin::symmetric(12, 8))
+        .show(ui, content);
 }
 
 pub fn surface(
@@ -99,36 +96,30 @@ pub fn surface(
 ) -> Response {
     let painter = ui.painter().clone();
     let layer = painter.add(Shape::Noop);
-    let radius = if floating { 25 } else { 23 };
+    let radius = if floating { 16 } else { 14 };
     let response = egui::Frame::new()
-        .inner_margin(if floating { 11 } else { 18 })
+        .inner_margin(if floating { 14 } else { 18 })
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             content(ui);
         })
         .response;
     let rect = response.rect;
-    crate::glass_backdrop::record(rect, ui.clip_rect(), radius);
     let amount = (strength / 100.0).clamp(0.0, 1.0);
-    let transmission = if crate::glass_backdrop::has_material() {
-        0.62
-    } else {
-        1.0
-    };
     let fill = |rgb: [u8; 3], opacity: f32| {
-        Color32::from_rgba_unmultiplied(rgb[0], rgb[1], rgb[2], (opacity * transmission) as u8)
+        Color32::from_rgba_unmultiplied(rgb[0], rgb[1], rgb[2], opacity.clamp(0.0, 255.0) as u8)
     };
     let (top, middle, bottom) = if floating {
         (
-            fill([41, 64, 89], 195.0 + 34.0 * amount),
-            fill([22, 35, 60], 178.0 + 40.0 * amount),
-            fill([29, 39, 67], 178.0 + 42.0 * amount),
+            fill([33, 62, 84], 227.0 + 18.0 * amount),
+            fill([24, 45, 67], 232.0 + 15.0 * amount),
+            fill([20, 37, 57], 235.0 + 13.0 * amount),
         )
     } else {
         (
-            fill([40, 59, 83], 190.0 + 40.0 * amount),
-            fill([29, 46, 72], 172.0 + 47.0 * amount),
-            fill([23, 35, 63], 177.0 + 44.0 * amount),
+            fill([30, 55, 79], 232.0 + 15.0 * amount),
+            fill([23, 43, 64], 235.0 + 12.0 * amount),
+            fill([21, 38, 57], 239.0 + 9.0 * amount),
         )
     };
     let shadow = egui::epaint::Shadow {
