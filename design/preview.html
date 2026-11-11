@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Snowy New Year — UI Design Preview</title>
+<style>
+:root{color-scheme:dark;--bg:#0B1422;--nav:#101C2C;--card:#172B40;--card2:#1C324A;--selected:#25465E;--border:#304358;--accent:#8DD9F6;--text:#F1F7FD;--muted:#94ADC3;--success:#74D7A7;--warning:#E3B777;--danger:#E4A5A5;--radius:14px;font:14px/1.45 "Segoe UI Variable","Segoe UI",system-ui,sans-serif}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at top left,#233b54 0,transparent 50%),#07101c;color:var(--text);min-height:100vh;padding:28px}
+button,input{font:inherit}button{cursor:pointer}button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.preview-hint{max-width:1050px;margin:0 auto 12px;color:#b7cadc;font-size:12px;display:flex;justify-content:space-between;gap:12px}.preview-hint strong{color:var(--accent)}
+.shell{width:min(1050px,100%);min-height:640px;margin:auto;border:1px solid #3A5068;border-radius:16px;box-shadow:0 20px 90px #020814bb;overflow:hidden;background:var(--bg)}
+.titlebar{height:55px;background:var(--nav);display:flex;align-items:center;justify-content:space-between;padding:0 19px;border-bottom:1px solid var(--border)}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:.12px}.brand .brandmark{color:var(--accent);font-size:23px}.smallcaps{font-size:10px;color:#829BB4;letter-spacing:1.3px;margin-left:8px;font-weight:600}
+.window-buttons{display:flex;align-items:center;gap:19px;color:#90A4B8;font-size:15px;user-select:none}.layout{display:flex;min-height:610px}
+.sidebar{background:var(--nav);width:195px;flex:0 0 195px;padding:15px 10px;display:flex;flex-direction:column;border-right:1px solid #1d3449}
+.nav-button{border:0;background:none;color:#adc2d4;border-radius:10px;padding:11px 13px;display:flex;align-items:center;gap:12px;text-align:left;width:100%;margin-bottom:5px;transition:background .15s}.nav-button:hover{background:#1d354b}.nav-button.active{color:#f5faff;background:var(--selected);font-weight:600}
+.nav-icon{font-size:17px;width:19px;text-align:center;color:var(--accent)}.sidebar-bottom{margin-top:auto;border-top:1px solid var(--border);padding:13px 8px 2px}.status{font-size:12px;color:#b1c4d4;display:flex;align-items:center;gap:8px}.dot{height:8px;width:8px;border-radius:50%;display:inline-block;background:var(--success)}.dot.paused{background:var(--warning)}.version{font-size:11px;color:#7f9bb2;margin-top:6px}
+.content{padding:26px 30px 32px;flex:1;min-width:0;max-height:calc(100vh - 130px);min-height:610px;overflow:auto}.page{display:none;animation:fade .2s ease}.page.active{display:block}@keyframes fade{from{opacity:.75;transform:translateY(4px)}to{opacity:1;transform:none}}
+.heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:22px}.heading h1{font-size:25px;line-height:1.2;margin:0 0 5px}.hint{font-size:12px;color:var(--muted)}.eyebrow{font-size:11px;color:#84c7e8;letter-spacing:1.3px;text-transform:uppercase;margin:0 0 6px}
+.card{padding:19px;background:var(--card);border-radius:var(--radius);border:1px solid #223c54;margin-bottom:16px}.card.flat{background:var(--card2)}.card h2{font-size:15px;font-weight:650;margin:0 0 14px}.card h3{font-size:14px;margin:0 0 10px}
+.row{display:flex;justify-content:space-between;align-items:center;gap:16px}.row+.row{margin-top:15px}.text-sub{font-size:12px;color:#a3b9ce;margin-top:3px}.divider{border:0;border-top:1px solid #304960;margin:17px 0}.primary{background:#86d7f8;border:1px solid #b4e5fa;color:#0b2033;font-weight:700;padding:9px 14px;border-radius:10px}.primary:hover{background:#afe9ff}.quiet{background:#203c53;color:#dbeefa;border:1px solid #466179;padding:9px 13px;border-radius:9px}.quiet:hover{background:#2b506a}
+.toggle{position:relative;appearance:none;width:42px;height:24px;background:#42576a;border:1px solid #607388;border-radius:18px;cursor:pointer;flex-shrink:0;transition:background .15s}.toggle:after{content:"";position:absolute;width:17px;height:17px;border-radius:50%;background:#e7f3fd;left:3px;top:2px;transition:transform .15s}.toggle:checked{background:#4e9fc3;border-color:#85d7f9}.toggle:checked:after{transform:translateX(18px)}
+.weather-card{position:relative;overflow:hidden}.weather-heading{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:14px}.weather-place{font-weight:650;font-size:15px}.temp{font-size:32px;letter-spacing:-1px;font-weight:650;line-height:1.1}.pill{font-size:11px;padding:5px 9px;border-radius:20px;color:#b6e4fa;border:1px solid #50738c;background:#1a3b55;white-space:nowrap}.label{display:block;color:#b6cadb;font-size:13px;margin-bottom:8px}.input{width:100%;background:#102437;border:1px solid #3b566d;color:#f0f7ff;border-radius:9px;padding:10px}.input:focus{outline:2px solid #8dd9f688}
+.controls{display:grid;grid-template-columns:1fr 1fr;gap:16px}.range-head{display:flex;justify-content:space-between;font-size:13px;color:#c7daea;margin-bottom:8px}.range-head output{color:var(--accent);font-variant-numeric:tabular-nums}input[type=range]{width:100%;accent-color:var(--accent)}
+.segmented{display:flex;background:#101f30;border-radius:11px;padding:4px;gap:4px;border:1px solid #304960;margin-bottom:16px}.segment{flex:1;background:none;border:0;border-radius:8px;padding:10px;color:#a9bfd4}.segment.active{background:#294b65;color:white;font-weight:650}.weather-stat{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.weather-stat .stat{background:#10263b;padding:12px;border-radius:10px}.stat strong{font-size:18px;display:block;margin-top:5px}.stat span{color:#a5bed1;font-size:11px}
+.note{border-left:3px solid #76b8d7;padding:10px 12px;background:#10273a;border-radius:0 8px 8px 0;font-size:12px;color:#b9d0e2;line-height:1.6}.note.warning{border-color:#e3b777}.choice-row{display:flex;gap:8px;flex-wrap:wrap}.choice{border:1px solid #54728b;background:#1c354a;color:#d8ebfa;border-radius:9px;padding:9px 12px}.choice.selected{background:#285472;border-color:#91d9f6;color:#fff}
+.color-swatch{height:34px;width:34px;border:2px solid #f1f7fd;border-radius:50%;display:inline-block}.scene{height:190px;position:relative;border:1px solid #35536d;background:radial-gradient(circle at 83% 22%,#2c4b69 0 22px,transparent 23px),linear-gradient(#132a44,#0c1d31);border-radius:11px;overflow:hidden}
+.scene-window{position:absolute;width:63%;height:85%;left:19%;top:29%;background:#263c53;border:2px solid #6c879e;border-radius:9px 9px 0 0;box-shadow:0 12px 25px #030d17aa}
+.scene-title{height:30px;background:#455f79;border-radius:7px 7px 0 0;padding:9px}.scene-title i{height:7px;width:7px;border-radius:50%;background:#dda19e;display:inline-block;margin-right:5px}.scene-title i:nth-child(2){background:#ecc986}.scene-title i:nth-child(3){background:#91d3b5}
+.scene-pane{margin:15px;display:flex;gap:12px}.scene-pane b{height:65px;flex:1;background:#344e65;border-radius:4px}.snowcap{position:absolute;top:27%;left:18.5%;width:64%;height:22px;background:#eaf8ff;border-radius:49% 48% 35% 35%;z-index:2;clip-path:polygon(0 32%,4% 14%,8% 36%,13% 13%,18% 24%,22% 0,27% 24%,34% 8%,40% 18%,46% 3%,52% 28%,60% 12%,66% 24%,72% 1%,79% 22%,84% 10%,90% 24%,95% 10%,100% 26%,100% 80%,97% 98%,91% 80%,84% 95%,78% 69%,72% 90%,65% 72%,60% 98%,53% 76%,46% 98%,40% 72%,34% 90%,27% 72%,20% 98%,14% 77%,8% 93%,0 80%)}
+.flake{position:absolute;color:#e0f4ff;pointer-events:none;animation:fall linear infinite;opacity:.75;z-index:3}@keyframes fall{from{transform:translateY(-40px) translateX(0)}to{transform:translateY(250px) translateX(32px)}}
+.tray{max-width:330px;background:#142536;border:1px solid #405369;border-radius:12px;padding:10px;box-shadow:0 12px 28px #02081455}.tray-head{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--border);margin-bottom:6px}.tray-item{font-size:13px;padding:10px;border-radius:8px;color:#e3edf6}.tray-item:hover{background:#24445a}.tray-icon{width:25px;display:inline-block;color:var(--accent)}
+.footer-message{margin-top:20px;font-size:11px;color:#7c9ab3;line-height:1.65}
+@media(max-width:740px){body{padding:10px}.layout{display:block}.sidebar{width:auto;flex:auto;display:flex;flex-direction:row;flex-wrap:wrap;gap:4px;padding:9px}.nav-button{width:auto;margin:0;padding:8px}.nav-button .nav-name{display:none}.sidebar-bottom{display:none}.content{max-height:none;min-height:550px;padding:18px}.controls{grid-template-columns:1fr}.weather-stat{grid-template-columns:1fr 1fr}.shell{min-height:0}.heading h1{font-size:22px}}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="preview-hint"><span><strong>DESIGN PREVIEW</strong> · Frosted Glass / Dark / Balanced</span><span>Демонстрация UI — без Rust, API и доступа к Windows</span></div>
+<div class="shell">
+ <header class="titlebar"><div class="brand"><span class="brandmark">❄</span> Snowy New Year <span class="smallcaps">CONCEPT</span></div><div class="window-buttons"><span>─</span><span>□</span><span>×</span></div></header>
+ <div class="layout">
+  <aside class="sidebar">
+    <button class="nav-button active" type="button" data-nav="home"><span class="nav-icon">⌂</span><span class="nav-name">Главная</span></button>
+    <button class="nav-button" type="button" data-nav="effects"><span class="nav-icon">❄</span><span class="nav-name">Эффекты</span></button>
+    <button class="nav-button" type="button" data-nav="weather"><span class="nav-icon">☁</span><span class="nav-name">Погода</span></button>
+    <button class="nav-button" type="button" data-nav="performance"><span class="nav-icon">◴</span><span class="nav-name">Производительность</span></button>
+    <button class="nav-button" type="button" data-nav="appearance"><span class="nav-icon">◈</span><span class="nav-name">Оформление</span></button>
+    <button class="nav-button" type="button" data-nav="settings"><span class="nav-icon">⚙</span><span class="nav-name">Настройки</span></button>
+    <div class="sidebar-bottom"><div class="status"><span class="dot" id="status-dot"></span><span id="status-text">Эффекты включены</span></div><div class="version">v0.1 · Design reference</div></div>
+  </aside>
+  <main class="content">
+    <section class="page active" id="home">
+      <div class="heading"><div><p class="eyebrow">Добро пожаловать</p><h1>Зимняя атмосфера</h1><span class="hint">Управляй снегом на своём рабочем столе</span></div><button type="button" class="primary" id="pause-btn">Ⅱ Пауза</button></div>
+      <article class="card weather-card"><div class="weather-heading"><div><div class="weather-place">⌖ Борисоглебск</div><div class="text-sub">Пасмурно · 0 мм осадков</div><p class="hint">Демонстрационные данные: 11.11.2026, 16:00 МСК</p></div><div style="text-align:right"><div class="temp">+4,4°</div><span class="pill">Реальная погода · пример</span></div></div>
+        <div class="scene" aria-label="Пример снежной шапки на окне">
+          <div class="scene-window"><div class="scene-title"><i></i><i></i><i></i></div><div class="scene-pane"><b></b><b></b></div></div><div class="snowcap" id="demo-cap"></div>
+          <span class="flake" style="left:10%;top:-22px;animation-duration:7s">❄</span><span class="flake" style="left:28%;top:-40px;animation-duration:10s;animation-delay:-4s">•</span><span class="flake" style="left:48%;top:-8px;animation-duration:8s;animation-delay:-6s">❄</span><span class="flake" style="left:67%;top:-22px;animation-duration:9s;animation-delay:-3s">•</span><span class="flake" style="left:85%;top:-20px;animation-duration:6s;animation-delay:-3s">❄</span>
+        </div><div class="text-sub" style="margin-top:10px">Демонстрация эффекта — фактическая погода может быть без снега</div>
+      </article>
+      <article class="card"><h2>Быстрое управление</h2><div class="row"><div><strong>❄ Снегопад</strong><div class="text-sub">Снежинки поверх рабочего стола</div></div><input aria-label="Снегопад" class="toggle" type="checkbox" checked data-sync="falling"></div><hr class="divider"><div class="row"><div><strong>▰ Снежные шапки</strong><div class="text-sub">Накопление на открытых окнах</div></div><input aria-label="Снежные шапки" class="toggle" type="checkbox" checked data-sync="caps"></div><hr class="divider"><div class="row"><div><strong>☁ Синхронизация с погодой</strong><div class="text-sub">Погодный режим — см. раздел «Погода»</div></div><input aria-label="Реальная погода" class="toggle" type="checkbox" checked data-sync="syncweather"></div></article>
+    </section>
+    <section class="page" id="effects">
+      <div class="heading"><div><p class="eyebrow">Настройка атмосферы</p><h1>Эффекты</h1><span class="hint">Снегопад и накопление на окнах настраиваются отдельно</span></div></div>
+      <article class="card"><div class="row"><h2 style="margin:0">❄ Падающий снег</h2><input aria-label="Снегопад" type="checkbox" class="toggle" checked data-sync="falling"></div><hr class="divider"><div class="controls"><div><div class="range-head"><span>Интенсивность</span><output data-output="intensity">45%</output></div><input type="range" min="0" max="100" value="45" data-range="intensity" data-unit="%"></div><div><div class="range-head"><span>Размер снежинок</span><output data-output="size">3 px</output></div><input type="range" min="1" max="8" value="3" data-range="size" data-unit=" px"></div><div><div class="range-head"><span>Прозрачность</span><output data-output="opacity">75%</output></div><input type="range" min="10" max="100" value="75" data-range="opacity" data-unit="%"></div><div><div class="range-head"><span>Боковой ветер</span><output data-output="wind">20%</output></div><input type="range" min="0" max="100" value="20" data-range="wind" data-unit="%"></div></div></article>
+      <article class="card"><div class="row"><h2 style="margin:0">▰ Снежные шапки</h2><input aria-label="Снежные шапки" type="checkbox" class="toggle" checked data-sync="caps"></div><hr class="divider"><div class="controls"><div><div class="range-head"><span>Максимальная высота</span><output data-output="capheight">18 px</output></div><input type="range" min="5" max="50" value="18" data-range="capheight" data-unit=" px"></div><div><div class="range-head"><span>Неровность края</span><output data-output="roughness">40%</output></div><input type="range" min="0" max="100" value="40" data-range="roughness" data-unit="%"></div></div><hr class="divider"><div class="row"><span>Сосульки</span><input class="toggle" type="checkbox" aria-label="Сосульки"></div><div class="text-sub" style="margin-top:12px">Свёрнутое окно сохраняет накопление. Закрытое окно удаляет снег. Это правило не меняется параметрами UI.</div></article>
+      <article class="card"><h2>Готовые пресеты</h2><div class="choice-row" id="presets"><button type="button" class="choice">Лёгкий снег</button><button type="button" class="choice selected">Обычная зима</button><button type="button" class="choice">Метель</button></div><div class="text-sub" style="margin-top:10px">Пресеты меняют художественную интенсивность, но не измерения WeatherAPI.</div></article>
+    </section>
+    <section class="page" id="weather">
+      <div class="heading"><div><p class="eyebrow">Погодные условия</p><h1>Погода</h1><span class="hint">Реальные данные или полностью ручная настройка</span></div></div>
+      <div class="segmented"><button class="segment active" type="button" data-weather-mode="real">Реальная погода</button><button class="segment" type="button" data-weather-mode="manual">Ручной режим</button></div>
+      <div id="real-weather"><article class="card"><h2>Местоположение</h2><label class="label" for="city">Город</label><input class="input" id="city" value="Борисоглебск, Россия" placeholder="Укажите город"><div class="text-sub">Это поле в макете, поиск города ещё не подключён.</div><hr class="divider"><div class="row"><div><strong>WeatherAPI</strong><div class="text-sub">Пример показаний от 11 ноября 2026 года</div></div><span class="pill">Демо · не онлайн</span></div></article><div class="weather-stat" style="margin-bottom:16px"><div class="stat"><span>Температура</span><strong>+4,4°C</strong></div><div class="stat"><span>Ветер</span><strong>19,4 км/ч</strong></div><div class="stat"><span>Снег</span><strong>0 мм</strong></div></div><div class="note">После подключения WeatherAPI появятся проверка соединения, отметка свежести данных и режим работы без интернета. API-ключ в этом макете не используется.</div></div>
+      <div id="manual-weather" hidden><article class="card"><h2>Ручная симуляция погоды</h2><div class="controls"><div><div class="range-head"><span>Интенсивность снега</span><output data-output="manualsnow">55%</output></div><input type="range" min="0" max="100" value="55" data-range="manualsnow" data-unit="%"></div><div><div class="range-head"><span>Ветер</span><output data-output="manualwind">30%</output></div><input type="range" min="0" max="100" value="30" data-range="manualwind" data-unit="%"></div><div><div class="range-head"><span>Температура</span><output data-output="manualtemp">−5°C</output></div><input type="range" min="-25" max="20" value="-5" data-range="manualtemp" data-unit="°C"></div></div></article><div class="note">Ручной режим работает независимо от сети и может включать снег даже летом.</div></div>
+    </section>
+    <section class="page" id="performance">
+      <div class="heading"><div><p class="eyebrow">Экономия ресурсов</p><h1>Производительность</h1><span class="hint">Система рисует только то, что пользователь видит</span></div></div>
+      <article class="card"><h2>Автоматическое поведение</h2><div class="row"><div><strong>Пауза в полноэкранных приложениях</strong><div class="text-sub">Не рисовать поверх игр</div></div><input class="toggle" type="checkbox" checked aria-label="Пауза при полноэкранных приложениях"></div><hr class="divider"><div class="row"><div><strong>Останавливать невидимый рендер</strong><div class="text-sub">0 FPS, когда нечего отображать</div></div><input class="toggle" type="checkbox" checked aria-label="Останавливать невидимый рендер"></div><hr class="divider"><div class="range-head"><span>Лимит FPS</span><output data-output="fps">60 FPS</output></div><input type="range" min="15" max="120" step="15" value="60" data-range="fps" data-unit=" FPS"></article>
+      <article class="card"><h2>Диагностика — схема будущей панели</h2><div class="row"><div><strong>◴ Рендер остановлен</strong><div class="text-sub">Пример причины: полноэкранное приложение</div></div><span class="pill">ДЕМО</span></div><hr class="divider"><div class="row"><span>Отрисовка</span><strong>0 FPS (пример)</strong></div><div class="row"><span>Накопление снега</span><strong>По времени</strong></div><div class="row"><span>Состояние окон</span><strong>Сохраняется</strong></div></article><div class="note">Показатели CPU и RAM будут доступны только после внедрения измерений в Rust. Макет не выдаёт вымышленные показатели за реальные.</div>
+    </section>
+    <section class="page" id="appearance">
+      <div class="heading"><div><p class="eyebrow">Персонализация</p><h1>Оформление</h1><span class="hint">Внешний вид панели управления, а не снежинок</span></div></div>
+      <article class="card"><h2>Тема</h2><div class="row"><div><strong>◈ Frosted Glass</strong><div class="text-sub">Тёмно-синяя палитра · холодные оттенки · сдержанное стекло</div></div><span class="pill">Выбрана</span></div><hr class="divider"><h3>Акцентный цвет</h3><div class="choice-row" id="swatches"><button type="button" aria-label="Ледяной голубой" class="color-swatch" style="background:#8DD9F6"></button><button type="button" aria-label="Лавандовый" class="color-swatch" style="background:#93A6FF"></button><button type="button" aria-label="Мятный" class="color-swatch" style="background:#74D6BF"></button><button type="button" aria-label="Серебристо-лиловый" class="color-swatch" style="background:#D6B6F2"></button></div><hr class="divider"><div class="range-head"><span>Интенсивность стекла</span><output data-output="glass">35%</output></div><input type="range" min="0" max="100" value="35" data-range="glass" data-unit="%"><div class="text-sub">В реальной программе это будет влиять на подложки и уровень прозрачности UI.</div></article><article class="card"><div class="row"><div><strong>Анимации интерфейса</strong><div class="text-sub">Короткие и ненавязчивые переходы</div></div><input class="toggle" type="checkbox" checked aria-label="Анимации интерфейса"></div></article>
+    </section>
+    <section class="page" id="settings">
+      <div class="heading"><div><p class="eyebrow">Системные параметры</p><h1>Настройки</h1><span class="hint">Windows, трей, мониторы и доступность</span></div></div>
+      <article class="card"><h2>Запуск и завершение</h2><div class="row"><div><strong>Автозапуск с Windows</strong></div><input class="toggle" type="checkbox" aria-label="Автозапуск с Windows"></div><hr class="divider"><div class="row"><div><strong>Закрывать в системный трей</strong><div class="text-sub">Движок продолжит работу после скрытия настроек</div></div><input class="toggle" type="checkbox" checked aria-label="Закрывать в трей"></div><hr class="divider"><div class="row"><span>Язык</span><strong>Русский</strong></div><div class="row"><span>Мониторы</span><strong>Все дисплеи</strong></div></article>
+      <article class="card"><h2>Интеграции</h2><div class="row"><div><strong>Погода через WeatherAPI</strong><div class="text-sub">Ключ будет храниться локально — не в репозитории</div></div><span class="pill">Не подключено</span></div><hr class="divider"><div class="row"><span>Горячие клавиши</span><button class="quiet" type="button" data-message="Настройка горячих клавиш появится в Rust-версии">Настроить</button></div></article>
+      <article class="card"><h2>Системный трей — пример меню</h2><div class="tray"><div class="tray-head"><span style="font-size:24px;color:var(--accent)">❄</span><span><strong>Snowy New Year</strong><br><span class="text-sub">Эффекты активны</span></span></div><div class="tray-item"><span class="tray-icon">⌂</span> Открыть приложение</div><div class="tray-item"><span class="tray-icon">Ⅱ</span> Приостановить эффекты</div><div class="tray-item"><span class="tray-icon">❄</span> Включить/выключить снегопад</div><div class="tray-item"><span class="tray-icon">▰</span> Включить/выключить шапки</div><div class="tray-item"><span class="tray-icon">☁</span> Режим погоды</div><div class="tray-item" style="color:#e4a5a5"><span class="tray-icon">×</span> Полностью выйти</div></div></article>
+    </section>
+    <div class="footer-message">Локальный UI-макет. Состояния переключателей меняются только в этой странице. Прототип не управляет Windows, снегом, погодой, автозапуском, треем или системными настройками.</div>
+  </main>
+ </div>
+</div>
+<script>
+(function(){
+  'use strict';
+  const navButtons = document.querySelectorAll('[data-nav]');
+  const pages = document.querySelectorAll('.page');
+  navButtons.forEach(function(btn){
+    btn.addEventListener('click',function(){
+      const id = btn.getAttribute('data-nav');
+      navButtons.forEach(function(b){b.classList.toggle('active',b===btn)});
+      pages.forEach(function(p){p.classList.toggle('active',p.id===id)});
+      document.querySelector('.content').scrollTop=0;
+    });
+  });
+  const state = {falling:true,caps:true,syncweather:true,paused:false};
+  const syncControls = document.querySelectorAll('[data-sync]');
+  function renderState(){
+    syncControls.forEach(function(c){c.checked=state[c.getAttribute('data-sync')]});
+    document.getElementById('demo-cap').style.display = state.caps ? '' : 'none';
+    document.querySelectorAll('.flake').forEach(function(f){f.style.display=state.falling ? '' : 'none'});
+    const dot=document.getElementById('status-dot');
+    dot.classList.toggle('paused',state.paused);
+    document.getElementById('status-text').textContent=state.paused?'Эффекты на паузе':'Эффекты включены';
+    document.getElementById('pause-btn').textContent=state.paused?'▶ Включить':'Ⅱ Пауза';
+  }
+  syncControls.forEach(function(c){c.addEventListener('change',function(){state[c.getAttribute('data-sync')]=c.checked;renderState()})});
+  document.getElementById('pause-btn').addEventListener('click',function(){state.paused=!state.paused;renderState()});
+  document.querySelectorAll('[data-range]').forEach(function(r){
+    const key=r.getAttribute('data-range');
+    const output=document.querySelector('[data-output="'+key+'"]');
+    r.addEventListener('input',function(){
+      output.textContent=String(r.value)+(r.getAttribute('data-unit')||'');
+      if(key==='capheight'){document.getElementById('demo-cap').style.height=Math.max(9,Number(r.value))+'px'}
+    });
+  });
+  document.querySelectorAll('[data-weather-mode]').forEach(function(b){
+    b.addEventListener('click',function(){
+      const real=b.getAttribute('data-weather-mode')==='real';
+      document.getElementById('real-weather').hidden=!real;
+      document.getElementById('manual-weather').hidden=real;
+      document.querySelectorAll('[data-weather-mode]').forEach(function(x){x.classList.toggle('active',x===b)});
+      state.syncweather=real;
+      renderState();
+    });
+  });
+  document.querySelectorAll('#presets .choice').forEach(function(b,i){
+    b.addEventListener('click',function(){
+      document.querySelectorAll('#presets .choice').forEach(function(x){x.classList.toggle('selected',x===b)});
+      const intensity=document.querySelector('[data-range="intensity"]');
+      intensity.value=[20,45,90][i];intensity.dispatchEvent(new Event('input'));
+    });
+  });
+  document.querySelectorAll('#swatches button').forEach(function(b){
+    b.addEventListener('click',function(){
+      document.documentElement.style.setProperty('--accent',getComputedStyle(b).backgroundColor);
+      document.querySelectorAll('#swatches button').forEach(function(x){x.style.outline=x===b?'2px solid white':'none';x.style.outlineOffset='3px'});
+    });
+  });
+  document.querySelectorAll('[data-message]').forEach(function(b){b.addEventListener('click',function(){window.alert(b.getAttribute('data-message'))})});
+  renderState();
+})();
+</script>
+</body>
+</html>
