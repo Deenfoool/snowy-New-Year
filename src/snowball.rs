@@ -19,6 +19,8 @@ pub struct Snowball {
     pub vy: f32,
     pub parent: Option<u64>,
     pub grounded: bool,
+    /// Outfit for a completed three-ball snowman: 0 = classic, 1 = festive, 2 = arctic.
+    pub outfit: u8,
 }
 
 impl Snowball {
@@ -32,6 +34,7 @@ impl Snowball {
             vy: 0.0,
             parent: None,
             grounded: false,
+            outfit: 0,
         }
     }
 
@@ -161,6 +164,19 @@ pub fn try_stack(balls: &mut [Snowball], moving_id: u64) -> bool {
     true
 }
 
+/// Cycle decorations for an existing, fully assembled snowman.
+pub fn cycle_outfit(balls: &mut [Snowball], head_id: u64) -> bool {
+    if !is_head_of_snowman(balls, head_id) {
+        return false;
+    }
+    if let Some(head) = balls.iter_mut().find(|ball| ball.id == head_id) {
+        head.outfit = (head.outfit + 1) % 3;
+        true
+    } else {
+        false
+    }
+}
+
 /// Three balls form a finished snowman if the bottom one rests on the ground.
 pub fn is_head_of_snowman(balls: &[Snowball], id: u64) -> bool {
     let Some(head) = balls.iter().find(|b| b.id == id) else {
@@ -213,6 +229,23 @@ mod tests {
         assert!(try_stack(&mut balls, 3));
         balls.push(made(4, 100.0, 406.0, 7.0, false));
         assert!(!try_stack(&mut balls, 4));
+    }
+
+    #[test]
+    fn outfits_cycle_only_for_completed_snowmen() {
+        let mut balls = vec![
+            made(1, 100.0, 500.0, 30.0, true),
+            made(2, 100.0, 450.0, 22.0, false),
+            made(3, 100.0, 418.0, 14.0, false),
+        ];
+        assert!(!cycle_outfit(&mut balls, 3));
+        balls[1].parent = Some(1);
+        balls[2].parent = Some(2);
+        for next in [1, 2, 0] {
+            assert!(cycle_outfit(&mut balls, 3));
+            assert_eq!(balls[2].outfit, next);
+        }
+        assert!(!cycle_outfit(&mut balls, 2));
     }
 
     #[test]
