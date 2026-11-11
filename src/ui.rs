@@ -447,6 +447,8 @@ impl App {
                     .text("Таяние"),
             );
             glass::toggle(ui, &mut self.settings.icicles, "Сосульки");
+            glass::toggle(ui, &mut self.settings.icicle_drips, "Капли с тающих сосулек");
+            glass::toggle(ui, &mut self.settings.wind_drifts, "Ветер формирует сугробы");
             glass::toggle(
                 ui,
                 &mut self.settings.shake_to_clear,
@@ -461,6 +463,17 @@ impl App {
                 ui,
                 &mut self.settings.snowballs,
                 "Лепить снежные шары мышью",
+            );
+            glass::toggle(
+                ui,
+                &mut self.settings.snowman_decorations,
+                "Украшения готовых снеговиков",
+            );
+            ui.label(
+                RichText::new(
+                    "Shift + ПКМ по голове готового снеговика меняет его наряд: классический, праздничный, полярный."
+                )
+                .color(MUTED),
             );
             ui.label(
                 RichText::new(
@@ -602,6 +615,8 @@ impl App {
             ui.label(format!("Частиц на дисплеях: {}", diag.particles));
             ui.label(format!("Снежных шаров: {}", diag.snowballs));
             ui.label(format!("Собрано снеговиков: {}", diag.snowmen));
+            ui.label(format!("Окон с наледью: {}", diag.iced_windows));
+            ui.label(format!("Капель при оттепели: {}", diag.drips));
         });
     }
 
@@ -1097,6 +1112,8 @@ fn scene(
             roughness: settings.roughness / 100.0,
             seed: 0x75c2_ac73,
             icicles: settings.icicles,
+            ice_factor: if settings.icicles { 1.0 } else { 0.0 },
+            wind_bias: 0.0,
         };
         let rows = shape.rows();
         let (cached_shape, texture) = preview.get_or_insert_with(|| {

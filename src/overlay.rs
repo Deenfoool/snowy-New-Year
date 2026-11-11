@@ -2,7 +2,7 @@ use crate::{
     icons,
     settings::Settings,
     shake::Shake,
-    snowcap::SnowCap,
+    snowcap::{advance_ice_fraction, SnowCap},
     snowball::{self, Snowball},
     weather::{self, Observation},
 };
@@ -55,6 +55,8 @@ pub struct Diagnostics {
     pub tracked: usize,
     pub snowballs: usize,
     pub snowmen: usize,
+    pub iced_windows: usize,
+    pub drips: usize,
     pub moving_balls: bool,
     pub caps: usize,
     pub bottom_edges: usize,
@@ -159,6 +161,7 @@ enum MouseAction {
     Down(Grab, Pointer),
     Move(Pointer),
     Up(Pointer),
+    Decorate(u64),
 }
 
 #[derive(Clone)]
@@ -175,6 +178,7 @@ struct BallHit {
     x: f32,
     y: f32,
     radius: f32,
+    decoratable: bool,
 }
 
 #[derive(Default)]
@@ -196,6 +200,7 @@ struct Events {
     ball_hits: Vec<BallHit>,
     mouse: Vec<MouseAction>,
     mouse_capturing: bool,
+    mouse_right_capturing: bool,
     last_mouse_wake: u32,
 }
 
@@ -341,11 +346,14 @@ unsafe extern "system" fn win_event(
     queue_geometry();
 }
 
-/// Only intercept Shift + left-drag over visible snow or an existing ball.
-/// All other input continues to reach the underlying Windows application.
+/// Only intercept Shift+LMB dragging over visible snow and Shift+RMB on a
+/// finished snowman's head. Never capture ordinary system mouse input.
 unsafe extern "system" fn mouse_hook_proc(code: i32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     if code != HC_ACTION as i32
-        || !matches!(wp as u32, WM_LBUTTONDOWN | WM_LBUTTONUP | WM_MOUSEMOVE)
+        || !matches!(
+            wp as u32,
+            WM_LBUTTONDOWN | WM_LBUTTONUP | WM_MOUSEMOVE | WM_RBUTTONDOWN | WM_RBUTTONUP
+        )
         || lp == 0
     {
         return CallNextHookEx(null_mut(), code, wp, lp);
@@ -359,6 +367,29 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wp: WPARAM, lp: LPARAM) -> 
     let mut wake = 0usize;
     EVENTS.with_borrow_mut(|events| {
         match wp as u32 {
+            WM_RBUTTONDOWN
+                if !events.mouse_right_capturing
+                    && !events.mouse_capturing
+                    && GetAsyncKeyState(VK_SHIFT as i32) < 0 =>
+            {
+                let target = events.ball_hits.iter().rev().find(|ball| {
+                    let dx = at.x - ball.x;
+                    let dy = at.y - ball.y;
+                    ball.decoratable && dx * dx + dy * dy <= (ball.radius + 3.0).powi(2)
+                });
+                if let Some(ball) = target {
+                    events.mouse_right_capturing = true;
+                    events.mouse.push(MouseAction::Decorate(ball.id));
+                    consume = true;
+                    wake = events.controller;
+                }
+            }
+            WM_RBUTTONUP if events.mouse_right_capturing => {
+                // Swallow the corresponding release, too: underlying apps must
+                // not see an orphan RMB-up or open their own context menu.
+                events.mouse_right_capturing = false;
+                consume = true;
+            }
             WM_LBUTTONDOWN if !events.mouse_capturing && GetAsyncKeyState(VK_SHIFT as i32) < 0 => {
                 let ball = events.ball_hits.iter().rev().find(|ball| {
                     let dx = at.x - ball.x;
@@ -875,6 +906,8 @@ struct Cap {
     /// Amount of snow already rolled away in each 10px section.
     removed: Vec<f32>,
     removed_updated: Instant,
+    ice_factor: f32,
+    ice_updated: Instant,
     bitmap: Option<CapBitmap>,
 }
 
@@ -937,6 +970,8 @@ struct Engine {
     next_ball: u64,
     gesture: Option<Gesture>,
     last_ball_physics: Instant,
+    drips: Vec<WaterDrip>,
+    last_drip: Instant,
     displays: Vec<Display>,
     surfaces: HashMap<String, Canvas>,
     random: u32,
@@ -995,6 +1030,29 @@ struct SnowParticle {
     opacity: f32,
 }
 
+struct WaterDrip {
+    start: Instant,
+    x: f32,
+    y: f32,
+    wind: f32,
+}
+
+impl WaterDrip {
+    fn age(&self, now: Instant) -> f32 {
+        now.saturating_duration_since(self.start).as_secs_f32()
+    }
+
+    fn sample(&self, now: Instant) -> SnowParticle {
+        let t = self.age(now);
+        SnowParticle {
+            x: self.x + self.wind * 12.0 * t,
+            y: self.y + 45.0 * t + 170.0 * t * t,
+            radius: 1.5,
+            opacity: (225.0 * (1.0 - t / 2.5)).clamp(0.0, 225.0),
+        }
+    }
+}
+
 fn random(seed: &mut u32) -> f32 {
     *seed ^= *seed << 13;
     *seed ^= *seed >> 17;
@@ -1013,6 +1071,8 @@ impl Engine {
             next_ball: 1,
             gesture: None,
             last_ball_physics: now,
+            drips: Vec::new(),
+            last_drip: now,
             displays: Vec::new(),
             surfaces: HashMap::new(),
             random: 0xc41f_543e,
@@ -1069,6 +1129,8 @@ impl Engine {
                 },
                 removed: Vec::new(),
                 removed_updated: now,
+                ice_factor: 0.0,
+                ice_updated: now,
                 bitmap: None,
             });
             let wanted = (window.bounds.width().max(0) as usize).div_ceil(SNOW_SEGMENT);
@@ -1100,6 +1162,11 @@ impl Engine {
             return;
         }
         match action {
+            MouseAction::Decorate(id) => {
+                if settings.snowman_decorations && snowball::cycle_outfit(&mut self.balls, id) {
+                    self.changed = true;
+                }
+            }
             MouseAction::Down(target, at) => {
                 if self.gesture.is_some() {
                     return;
@@ -1215,6 +1282,8 @@ impl Engine {
             roughness: settings.roughness / 100.0,
             seed: cap.seed,
             icicles: settings.icicles,
+            ice_factor: (cap.ice_factor * 20.0).round() / 20.0,
+            wind_bias: 0.0,
         };
         let distance = ((to.x - from.x).abs().max((to.y - from.y).abs()) / 7.0)
             .ceil()
@@ -1299,6 +1368,111 @@ impl Engine {
                 moved.grounded = y >= floor;
             }
             self.changed = true;
+        }
+    }
+
+    /// Ice changes continuously with elapsed time, but the rasterizer sees
+    /// only 5% steps, so a large collection of open windows stays cheap.
+    fn advance_ice(&mut self, now: Instant, s: &Settings, temp: f32, weather_known: bool) {
+        for cap in self.caps.values_mut() {
+            if !weather_known {
+                // Unknown temperature is not an invented zero-degree reading.
+                cap.ice_updated = now;
+                continue;
+            }
+            let elapsed = now.saturating_duration_since(cap.ice_updated)
+                .as_secs_f32().min(6.0 * 3600.0);
+            cap.ice_updated = now;
+            let old_step = (cap.ice_factor * 20.0).round() as i32;
+            let depth = cap.snow.height_at(now, self.rate, self.max_height);
+            cap.ice_factor = advance_ice_fraction(
+                cap.ice_factor,
+                temp,
+                depth,
+                elapsed,
+                s.icicles && s.caps,
+            );
+            if old_step != (cap.ice_factor * 20.0).round() as i32 {
+                self.changed = true;
+            }
+        }
+    }
+
+    fn update_drips(
+        &mut self,
+        now: Instant,
+        s: &Settings,
+        weather: weather::Conditions,
+        paused: bool,
+        sleeping: bool,
+        weather_known: bool,
+    ) {
+        self.drips.retain(|drop| drop.age(now) < 2.5);
+        if !s.icicles || !s.icicle_drips {
+            self.drips.clear();
+            return;
+        }
+        if paused || sleeping || !weather_known || weather.temperature <= 0.0
+            || self.drips.len() >= 48
+            || now.saturating_duration_since(self.last_drip) < Duration::from_millis(650)
+        {
+            return;
+        }
+        self.last_drip = now;
+        // Try a handful of existing, visible window edges. No physical
+        // particles are created for fullscreen/hidden desktops.
+        let candidates: Vec<_> = self.windows.iter().copied()
+            .filter(|window| window.shows_cap(&self.displays))
+            .collect();
+        if candidates.is_empty() {
+            return;
+        }
+        let start = ((random(&mut self.random) * candidates.len() as f32) as usize)
+            .min(candidates.len() - 1);
+        for index in 0..candidates.len().min(8) {
+            let window = candidates[(start + index) % candidates.len()];
+            let Some(display) = self.displays.iter().find(|display| {
+                display.bounds.intersects(window.bounds)
+                    && (s.monitor.is_empty() || s.monitor == display.name)
+            }) else { continue };
+            if s.fullscreen_pause
+                && self.windows.iter().any(|w| w.visible && w.bounds.covers(display.bounds))
+            {
+                continue;
+            }
+            let Some(cap) = self.caps.get(&window.id) else { continue };
+            if cap.ice_factor < 0.10 { continue; }
+            let depth = cap.snow.height_at(now, self.rate, self.max_height);
+            if depth < 5.0 || window.bounds.width() <= 0 { continue; }
+            let shape = SnowCap {
+                width: window.bounds.width(),
+                depth,
+                roughness: s.roughness / 100.0,
+                seed: cap.seed,
+                icicles: true,
+                ice_factor: (cap.ice_factor * 20.0).round() / 20.0,
+                wind_bias: 0.0,
+            };
+            let cells = (window.bounds.width().max(1) as usize).div_ceil(52);
+            for _ in 0..6 {
+                let cell = (random(&mut self.random) * cells as f32) as u32;
+                if let Some((x, tip)) = shape.icicle_tip_in_cell(cell) {
+                    let segment = x as usize / SNOW_SEGMENT;
+                    if shape.sample_height(x)
+                        - cap.removed.get(segment).copied().unwrap_or(0.0) < 5.0
+                    {
+                        continue;
+                    }
+                    self.drips.push(WaterDrip {
+                        start: now,
+                        x: window.bounds.left as f32 + x,
+                        y: window.bounds.top as f32 + tip,
+                        wind: weather.wind,
+                    });
+                    self.changed = true;
+                    return;
+                }
+            }
         }
     }
 
@@ -1440,6 +1614,10 @@ impl Engine {
         self.bottom_rate = bottom_rate;
         self.expiry = expiry;
         self.max_height = s.max_height;
+        let weather_known = !s.real_weather || expiry.is_some();
+        self.advance_ice(now, s, weather.temperature, weather_known);
+        self.update_drips(now, s, weather, paused, sleeping, weather_known);
+        let water_drops: Vec<_> = self.drips.iter().map(|drop| drop.sample(now)).collect();
         let bottom_depth = self
             .bottom_snow
             .height_at(now, self.bottom_rate, self.max_height);
@@ -1461,6 +1639,8 @@ impl Engine {
             tracked: self.caps.len(),
             snowballs: self.balls.len(),
             snowmen: self.balls.iter().filter(|ball| snowball::is_head_of_snowman(&self.balls, ball.id)).count(),
+            iced_windows: self.caps.values().filter(|cap| cap.ice_factor > 0.05).count(),
+            drips: self.drips.len(),
             reason: "Нет видимых эффектов",
             monitors: self
                 .displays
@@ -1521,6 +1701,15 @@ impl Engine {
                     })
                     .collect();
                 let has_clumps = !falling_clumps.is_empty();
+                let drops_here: Vec<_> = water_drops.iter()
+                    .filter(|drop| {
+                        drop.x >= (bounds.left - 5) as f32
+                            && drop.x < (bounds.right + 5) as f32
+                            && drop.y >= (bounds.top - 5) as f32
+                            && drop.y < (bounds.bottom + 5) as f32
+                    })
+                    .collect();
+                let has_drops = !drops_here.is_empty();
                 let bottom = (s.bottom_snow && bottom_depth >= 1.25).then(|| SnowCap {
                     width: bounds.width() + BOTTOM_INSET * 2,
                     depth: bottom_depth,
@@ -1529,6 +1718,8 @@ impl Engine {
                         seed.rotate_left(5) ^ u32::from(byte)
                     }),
                     icicles: false,
+                    ice_factor: 0.0,
+                    wind_bias: if s.wind_drifts { weather.wind.clamp(-1.0, 1.0) } else { 0.0 },
                 });
                 let edges: Vec<_> = if s.caps {
                     self.windows
@@ -1549,6 +1740,8 @@ impl Engine {
                                 roughness: s.roughness / 100.0,
                                 seed: cap.seed,
                                 icicles: s.icicles,
+                                ice_factor: (cap.ice_factor * 20.0).round() / 20.0,
+                                wind_bias: 0.0,
                             };
                             let rows = shape.rows();
                             (height >= 1.0
@@ -1570,7 +1763,9 @@ impl Engine {
                         && ball.y + radius >= bounds.top as f32
                         && ball.y - radius < bounds.bottom as f32
                 });
-                if count == 0 && edges.is_empty() && !has_clumps && bottom.is_none() && !balls_here {
+                if count == 0 && edges.is_empty()
+                    && !has_clumps && !has_drops
+                    && bottom.is_none() && !balls_here {
                     continue;
                 }
                 let name = &display.name;
@@ -1585,7 +1780,7 @@ impl Engine {
                 };
                 active.push(name.clone());
                 let cap_changed = canvas.edges != edges || canvas.bottom_shape != bottom;
-                if (count != 0 || has_clumps) && animate
+                if (count != 0 || has_clumps || has_drops) && animate
                     || cap_changed
                     || canvas.count != count
                     || canvas.shedding != has_clumps
@@ -1602,6 +1797,7 @@ impl Engine {
                         &mut self.caps,
                         bottom,
                         &falling_clumps,
+                        &drops_here,
                         &self.balls,
                         &mut self.random,
                         cap_changed || self.changed,
@@ -1611,7 +1807,7 @@ impl Engine {
                     canvas.bottom_shape = bottom;
                 }
                 if canvas.shown {
-                    diag.particles += count + falling_clumps.len();
+                    diag.particles += count + falling_clumps.len() + drops_here.len();
                     caps_drawn += canvas.cap_count;
                     diag.bottom_edges += usize::from(bottom.is_some());
                     if s.snowballs {
@@ -1659,6 +1855,8 @@ impl Engine {
                                     x: ball.x,
                                     y: ball.y,
                                     radius,
+                                    decoratable: s.snowman_decorations
+                                        && snowball::is_head_of_snowman(&self.balls, ball.id),
                                 });
                             }
                         }
@@ -1676,6 +1874,7 @@ impl Engine {
             events.ball_hits = ball_hits.clone();
             if paused || sleeping || !s.snowballs {
                 events.mouse_capturing = false;
+                events.mouse_right_capturing = false;
                 events.mouse.clear();
             }
         });
@@ -1850,6 +2049,7 @@ impl Canvas {
         caps: &mut HashMap<usize, Cap>,
         bottom: Option<SnowCap>,
         falling_clumps: &[&SnowParticle],
+        falling_drops: &[&SnowParticle],
         balls: &[Snowball],
         seed: &mut u32,
         rebuild_caps: bool,
@@ -1882,7 +2082,7 @@ impl Canvas {
             }
         }
         if s.snowballs {
-            self.draw_balls(balls);
+            self.draw_balls(balls, s.snowman_decorations);
         }
         self.count = count;
         self.flakes.truncate(count);
@@ -1907,7 +2107,15 @@ impl Canvas {
             let radius = (s.size * flake.size * 0.63).max(0.7);
             self.draw_particle(x, y, radius, s.opacity * 2.55);
         }
-        self.shedding = !falling_clumps.is_empty();
+        self.shedding = !falling_clumps.is_empty() || !falling_drops.is_empty();
+        for drip in falling_drops {
+            self.colored_stroke(
+                (drip.x - bounds.left as f32, drip.y - bounds.top as f32 - 2.5),
+                (drip.x - bounds.left as f32, drip.y - bounds.top as f32),
+                drip.radius * (drip.opacity / 255.0).clamp(0.1, 1.0),
+                [139, 216, 247],
+            );
+        }
         for snow in falling_clumps {
             self.draw_particle(
                 snow.x - bounds.left as f32,
@@ -1955,9 +2163,10 @@ impl Canvas {
         }
     }
 
-    fn draw_balls(&mut self, balls: &[Snowball]) {
+    fn draw_balls(&mut self, balls: &[Snowball], decorate: bool) {
         let mut sorted: Vec<_> = balls.iter().copied().collect();
-        // Draw ground-level bases before their smaller middle and head sections.
+        // Bases first; finished snowmen are decorated only after their
+        // spheres are composited so hats, faces and scarves stay readable.
         sorted.sort_by(|a, b| b.y.total_cmp(&a.y));
         for ball in sorted {
             let radius = ball.radius();
@@ -1969,20 +2178,188 @@ impl Canvas {
                 continue;
             }
             self.draw_sphere(ball);
-            if snowball::is_head_of_snowman(balls, ball.id) {
-                let x = ball.x - self.bounds.left as f32;
-                let y = ball.y - self.bounds.top as f32;
-                self.colored_disc(x - radius * 0.22, y - radius * 0.14, (radius * 0.10).max(1.5), [37, 52, 66]);
-                self.colored_disc(x + radius * 0.20, y - radius * 0.14, (radius * 0.10).max(1.5), [37, 52, 66]);
-                self.colored_disc(x + radius * 0.09, y + radius * 0.05, (radius * 0.15).max(2.0), [237, 122, 58]);
-            } else if balls.iter().any(|child| child.parent == Some(ball.id)
-                && snowball::is_head_of_snowman(balls, child.id))
-            {
-                let x = ball.x - self.bounds.left as f32;
-                let y = ball.y - self.bounds.top as f32;
-                self.colored_disc(x, y, (radius * 0.08).max(1.6), [50, 68, 82]);
-                self.colored_disc(x, y + radius * 0.35, (radius * 0.08).max(1.6), [50, 68, 82]);
+        }
+        if decorate {
+            for head in balls.iter().copied().filter(|ball| {
+                snowball::is_head_of_snowman(balls, ball.id)
+            }) {
+                if let Some(middle) = head.parent.and_then(|id| {
+                    balls.iter().copied().find(|ball| ball.id == id)
+                }) {
+                    self.draw_snowman_outfit(head, middle);
+                }
             }
+        }
+    }
+
+    fn draw_snowman_outfit(&mut self, head: Snowball, middle: Snowball) {
+        let ox = self.bounds.left as f32;
+        let oy = self.bounds.top as f32;
+        let (hx, hy) = (head.x - ox, head.y - oy);
+        let (mx, my) = (middle.x - ox, middle.y - oy);
+        let hr = head.radius();
+        let mr = middle.radius();
+        let (cloth, edge, dark, festive) = match head.outfit % 3 {
+            1 => ([192, 52, 70], [252, 239, 223], [65, 43, 57], true),
+            2 => ([62, 151, 174], [193, 232, 239], [29, 65, 91], false),
+            _ => ([176, 64, 79], [233, 175, 167], [48, 57, 74], false),
+        };
+        // Twig arms are attached to the middle snowball; they are drawn
+        // only for completed snowmen and never interfere with mouse hit tests.
+        let branch = [112, 82, 66];
+        let left = (mx - mr * 0.74, my - mr * 0.13);
+        let right = (mx + mr * 0.74, my - mr * 0.13);
+        let left_tip = (mx - mr * 1.65, my - mr * 0.76);
+        let right_tip = (mx + mr * 1.65, my - mr * 0.76);
+        self.colored_stroke(left, left_tip, (mr * 0.065).max(1.1), branch);
+        self.colored_stroke(right, right_tip, (mr * 0.065).max(1.1), branch);
+        self.colored_stroke(
+            (left_tip.0 + mr * 0.24, left_tip.1 + mr * 0.15),
+            (left_tip.0 + mr * 0.11, left_tip.1 - mr * 0.19),
+            1.0,
+            branch,
+        );
+        self.colored_stroke(
+            (right_tip.0 - mr * 0.24, right_tip.1 + mr * 0.15),
+            (right_tip.0 - mr * 0.11, right_tip.1 - mr * 0.19),
+            1.0,
+            branch,
+        );
+
+        // Coal buttons and eyes.
+        for offset in [0.0, 0.37, 0.69] {
+            self.colored_disc(mx, my + mr * offset, (mr * 0.085).max(1.5), dark);
+        }
+        for side in [-1.0f32, 1.0] {
+            self.colored_disc(
+                hx + side * hr * 0.29,
+                hy - hr * 0.14,
+                (hr * 0.11).max(1.2),
+                [45, 53, 67],
+            );
+        }
+        // Slightly elongated carrot, not an oversized round dot.
+        self.colored_stroke(
+            (hx + hr * 0.06, hy + hr * 0.09),
+            (hx + hr * 0.56, hy + hr * 0.24),
+            (hr * 0.12).max(1.3),
+            [233, 122, 57],
+        );
+
+        // Scarf neck with a short hanging tail.
+        let neck_y = hy + hr * 0.83;
+        self.colored_stroke(
+            (hx - hr * 0.83, neck_y),
+            (hx + hr * 0.83, neck_y),
+            (hr * 0.19).max(1.6),
+            cloth,
+        );
+        self.colored_stroke(
+            (hx + hr * 0.45, neck_y),
+            (hx + hr * 0.51, neck_y + mr * 0.90),
+            (hr * 0.18).max(1.4),
+            cloth,
+        );
+        self.colored_disc(
+            hx + hr * 0.51,
+            neck_y + mr * 0.90,
+            (hr * 0.18).max(1.4),
+            edge,
+        );
+
+        // Headwear: top hat, Santa hat, knitted winter hat.
+        let hat_y = hy - hr * 0.89;
+        if festive {
+            self.colored_stroke(
+                (hx - hr * 0.78, hat_y),
+                (hx + hr * 0.78, hat_y),
+                (hr * 0.19).max(1.6),
+                edge,
+            );
+            self.colored_stroke(
+                (hx - hr * 0.61, hat_y - hr * 0.09),
+                (hx + hr * 0.18, hat_y - hr * 0.96),
+                (hr * 0.55).max(3.0),
+                cloth,
+            );
+            self.colored_disc(
+                hx + hr * 0.18,
+                hat_y - hr * 0.98,
+                (hr * 0.20).max(2.0),
+                edge,
+            );
+        } else if head.outfit % 3 == 2 {
+            self.colored_rounded_cap(
+                hx - hr * 0.66,
+                hat_y - hr * 0.68,
+                hx + hr * 0.66,
+                hat_y + hr * 0.06,
+                cloth,
+            );
+            self.colored_stroke(
+                (hx - hr * 0.81, hat_y),
+                (hx + hr * 0.81, hat_y),
+                (hr * 0.15).max(1.5),
+                edge,
+            );
+            self.colored_disc(hx, hat_y - hr * 0.77, (hr * 0.20).max(1.7), edge);
+        } else {
+            self.colored_rounded_cap(
+                hx - hr * 0.53,
+                hat_y - hr * 0.85,
+                hx + hr * 0.53,
+                hat_y + hr * 0.05,
+                dark,
+            );
+            self.colored_stroke(
+                (hx - hr * 0.85, hat_y + hr * 0.01),
+                (hx + hr * 0.85, hat_y + hr * 0.01),
+                (hr * 0.15).max(1.5),
+                dark,
+            );
+            self.colored_stroke(
+                (hx - hr * 0.51, hat_y - hr * 0.07),
+                (hx + hr * 0.51, hat_y - hr * 0.07),
+                (hr * 0.10).max(1.0),
+                cloth,
+            );
+        }
+    }
+
+    fn colored_stroke(
+        &mut self,
+        from: (f32, f32),
+        to: (f32, f32),
+        thickness: f32,
+        rgb: [u8; 3],
+    ) {
+        let dx = to.0 - from.0;
+        let dy = to.1 - from.1;
+        let steps = dx.abs().max(dy.abs()).ceil().max(1.0) as usize;
+        for step in 0..=steps {
+            let t = step as f32 / steps as f32;
+            self.colored_disc(from.0 + dx * t, from.1 + dy * t, thickness, rgb);
+        }
+    }
+
+    fn colored_rounded_cap(
+        &mut self,
+        left: f32,
+        top: f32,
+        right: f32,
+        bottom: f32,
+        rgb: [u8; 3],
+    ) {
+        if right <= left || bottom <= top {
+            return;
+        }
+        for y in top.ceil() as i32..=bottom.floor() as i32 {
+            self.colored_stroke(
+                (left + 1.0, y as f32),
+                (right - 1.0, y as f32),
+                1.0,
+                rgb,
+            );
         }
     }
 

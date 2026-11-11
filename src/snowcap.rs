@@ -7,12 +7,39 @@ pub struct SnowCap {
     pub roughness: f32,
     pub seed: u32,
     pub icicles: bool,
+    /// 0 = no visible ice, 1 = fully grown. Rounded to 1/20 in the engine.
+    pub ice_factor: f32,
+    /// Wind redistributes snow along the edge; zero preserves the original profile.
+    pub wind_bias: f32,
+}
+
+/// Advance ice over elapsed real time, independently from rendering FPS.
+/// No frame-by-frame simulation is needed while a window is hidden.
+pub fn advance_ice_fraction(
+    current: f32,
+    temperature: f32,
+    snow_depth: f32,
+    elapsed_seconds: f32,
+    enabled: bool,
+) -> f32 {
+    if !enabled {
+        return 0.0;
+    }
+    let seconds = elapsed_seconds.max(0.0).min(6.0 * 3600.0);
+    if temperature <= 0.0 && snow_depth >= 5.0 {
+        let growth = (1.0 + temperature.abs() * 0.07).min(2.5);
+        (current + seconds * growth / 180.0).clamp(0.0, 1.0)
+    } else {
+        let melt = (1.0 + temperature.max(0.0) * 0.25).min(4.0);
+        (current - seconds * melt / 100.0).clamp(0.0, 1.0)
+    }
 }
 
 impl SnowCap {
     pub fn rows(&self) -> Range<i32> {
         -(self.depth.ceil() as i32)
-            ..(self.depth * 0.43 + 3.5).ceil() as i32 + if self.icicles { 14 } else { 0 }
+            ..(self.depth * 0.43 + 3.5).ceil() as i32
+                + if self.icicles && self.ice_factor > 0.0 { 14 } else { 0 }
     }
 
     /// Coordinates are relative to the window's upper left corner. Pixels are
@@ -123,7 +150,10 @@ impl SnowCap {
             + (powder - 0.5) * (0.04 + 0.10 * roughness);
         // An initial dusting takes hold on the thicker parts of the profile first.
         let dusting = (1.0 - self.depth / 4.5).max(0.0) * 0.31;
-        self.depth * rounded_ends * (profile - dusting).clamp(0.0, 1.0)
+        // Small, deterministic asymmetry: downwind snowdrifts are a little higher.
+        let wind = (1.0 + self.wind_bias.clamp(-1.0, 1.0) * (t - 0.5) * 0.46)
+            .clamp(0.72, 1.28);
+        self.depth * rounded_ends * (profile - dusting).clamp(0.0, 1.0) * wind
     }
 
     fn icicle(&self, x: f32, lip: f32) -> (f32, f32) {
@@ -136,7 +166,25 @@ impl SnowCap {
         let half_width = 0.9 + 0.7 * unit(sample ^ 0x047a_ad81);
         let weight = (1.0 - (x % 52.0 - center).abs() / half_width).max(0.0);
         let length = (self.depth * (0.24 + 0.48 * unit(sample ^ 0x852a_f1ed))).min(13.0);
-        (length * weight, weight)
+        (length * weight * self.ice_factor.clamp(0.0, 1.0), weight)
+    }
+
+    /// Sample a real icicle tip (not a random point of the window) for a melting droplet.
+    pub fn icicle_tip_in_cell(&self, cell: u32) -> Option<(f32, f32)> {
+        if !self.icicles || self.ice_factor <= 0.0 {
+            return None;
+        }
+        let sample = self.seed ^ cell.wrapping_mul(0xb529_7a4d);
+        let x = 52.0 * cell as f32 + 7.0 + 38.0 * unit(sample);
+        if x >= self.width as f32 {
+            return None;
+        }
+        let crest = self.crest(x);
+        let drift = noise(self.seed ^ 0x6fd5_8e2b, (x / self.width as f32) * (3.0 + self.width as f32 / 90.0));
+        let scallop = noise(self.seed ^ 0x892a_37df, x / 19.0);
+        let lip = crest * (0.13 + 0.22 * drift + 0.08 * scallop);
+        let (length, _) = self.icicle(x, lip);
+        (length > 1.0).then_some((x, lip + length))
     }
 }
 
@@ -167,7 +215,7 @@ fn argb(rgb: [f32; 3], alpha: f32) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use super::SnowCap;
+    use super::{advance_ice_fraction, SnowCap};
 
     #[test]
     fn rolling_removes_snow_only_from_touched_segments() {
@@ -177,6 +225,8 @@ mod tests {
             roughness: 0.35,
             seed: 1024,
             icicles: false,
+            ice_factor: 0.0,
+            wind_bias: 0.0,
         };
         let mut untouched = 0usize;
         let mut original = 0usize;
@@ -197,6 +247,52 @@ mod tests {
     }
 
     #[test]
+    fn wind_shapes_snowdrifts_without_changing_the_average_depth() {
+        let mut cap = SnowCap {
+            width: 500,
+            depth: 30.0,
+            roughness: 0.4,
+            seed: 42,
+            icicles: false,
+            ice_factor: 0.0,
+            wind_bias: 0.8,
+        };
+        let downwind = cap.sample_height(390.0);
+        let upwind = cap.sample_height(110.0);
+        cap.wind_bias = -0.8;
+        assert!(downwind > cap.sample_height(390.0));
+        assert!(upwind < cap.sample_height(110.0));
+    }
+
+    #[test]
+    fn ice_growth_and_melting_are_time_based_and_bounded() {
+        let frozen = advance_ice_fraction(0.0, -5.0, 20.0, 180.0, true);
+        assert!(frozen > 0.9 && frozen <= 1.0);
+        let thawed = advance_ice_fraction(frozen, 5.0, 20.0, 60.0, true);
+        assert!(thawed < frozen);
+        assert_eq!(advance_ice_fraction(0.8, -5.0, 20.0, 3.0, false), 0.0);
+        assert_eq!(advance_ice_fraction(0.0, -5.0, 0.0, 20.0, true), 0.0);
+        assert_eq!(advance_ice_fraction(1.0, -10.0, 20.0, 1000.0, true), 1.0);
+    }
+
+    #[test]
+    fn icicles_shrink_when_ice_factor_decreases() {
+        let mut cap = SnowCap {
+            width: 520,
+            depth: 48.0,
+            roughness: 0.35,
+            seed: 123,
+            icicles: true,
+            ice_factor: 1.0,
+            wind_bias: 0.0,
+        };
+        let tips: Vec<_> = (0..10).filter_map(|cell| cap.icicle_tip_in_cell(cell)).collect();
+        assert!(!tips.is_empty());
+        cap.ice_factor = 0.0;
+        assert!((0..10).all(|cell| cap.icicle_tip_in_cell(cell).is_none()));
+    }
+
+    #[test]
     fn clipping_preserves_the_profile_and_premultiplied_channels() {
         for depth in [1.0, 18.0, 50.0] {
             let cap = SnowCap {
@@ -205,6 +301,8 @@ mod tests {
                 roughness: 0.45,
                 seed: 42,
                 icicles: true,
+                ice_factor: 1.0,
+                wind_bias: 0.0,
             };
             let mut expected = Vec::new();
             cap.rasterize(0..cap.width, cap.rows(), |x, y, pixel| {
