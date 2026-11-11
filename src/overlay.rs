@@ -861,11 +861,15 @@ unsafe extern "system" fn enumerate_window(hwnd: HWND, data: LPARAM) -> BOOL {
     1
 }
 
+const SNOW_SEGMENT: usize = 10;
+
 struct Cap {
     process: u32,
     thread: u32,
     seed: u32,
     snow: SnowDepth,
+    /// Amount of snow already rolled away in each 10px section.
+    removed: Vec<f32>,
     bitmap: Option<CapBitmap>,
 }
 
@@ -892,7 +896,7 @@ impl SnowDepth {
 }
 
 impl CapBitmap {
-    fn pixels(cache: &mut Option<Self>, shape: SnowCap) -> &[(i32, i32, u32)] {
+    fn pixels(cache: &mut Option<Self>, shape: SnowCap, removed: &[f32]) -> &[(i32, i32, u32)] {
         let bitmap = cache.get_or_insert_with(|| Self {
             shape,
             pixels: Vec::new(),
@@ -900,7 +904,7 @@ impl CapBitmap {
         if bitmap.shape != shape || bitmap.pixels.is_empty() {
             bitmap.shape = shape;
             bitmap.pixels.clear();
-            shape.rasterize(0..shape.width, shape.rows(), |x, y, pixel| {
+            shape.rasterize_removed(0..shape.width, shape.rows(), removed, SNOW_SEGMENT, |x, y, pixel| {
                 bitmap.pixels.push((x, y, pixel));
             });
         }
@@ -908,10 +912,26 @@ impl CapBitmap {
     }
 }
 
+#[derive(Clone, Copy)]
+enum Gesture {
+    Rolling {
+        window: usize,
+        ball: u64,
+        sampled: Pointer,
+    },
+    Dragging {
+        ball: u64,
+    },
+}
+
 struct Engine {
     instance: HINSTANCE,
     windows: Vec<Window>,
     caps: HashMap<usize, Cap>,
+    balls: Vec<Snowball>,
+    next_ball: u64,
+    gesture: Option<Gesture>,
+    last_ball_physics: Instant,
     displays: Vec<Display>,
     surfaces: HashMap<String, Canvas>,
     random: u32,
@@ -984,6 +1004,10 @@ impl Engine {
             instance,
             windows: Vec::new(),
             caps: HashMap::new(),
+            balls: Vec::new(),
+            next_ball: 1,
+            gesture: None,
+            last_ball_physics: now,
             displays: Vec::new(),
             surfaces: HashMap::new(),
             random: 0xc41f_543e,
@@ -1030,7 +1054,7 @@ impl Engine {
             process == cap.process && thread == cap.thread
         });
         for window in self.windows.iter().filter(|window| window.cap) {
-            self.caps.entry(window.id).or_insert_with(|| Cap {
+            let cap = self.caps.entry(window.id).or_insert_with(|| Cap {
                 process: window.process,
                 thread: window.thread,
                 seed: (random(&mut self.random) * 16_777_216.0) as u32,
@@ -1038,8 +1062,14 @@ impl Engine {
                     height: 0.0,
                     updated: now,
                 },
+                removed: Vec::new(),
                 bitmap: None,
             });
+            let wanted = (window.bounds.width().max(0) as usize).div_ceil(SNOW_SEGMENT);
+            if cap.removed.len() != wanted {
+                cap.removed.resize(wanted, 0.0);
+                cap.bitmap = None;
+            }
         }
     }
 
@@ -1056,6 +1086,213 @@ impl Engine {
                 .iter()
                 .any(|display| display.name == *name && display.bounds == canvas.bounds)
         });
+    }
+
+    fn handle_mouse(&mut self, action: MouseAction, now: Instant, settings: &Settings) {
+        if !settings.snowballs {
+            self.gesture = None;
+            return;
+        }
+        match action {
+            MouseAction::Down(target, at) => {
+                if self.gesture.is_some() {
+                    return;
+                }
+                match target {
+                    Grab::Cap(window) => {
+                        if self.balls.len() >= snowball::MAX_BALLS
+                            || !self.caps.contains_key(&window)
+                            || !self.windows.iter().any(|w| w.id == window && w.shows_cap(&self.displays))
+                        {
+                            return;
+                        }
+                        let id = self.next_ball;
+                        self.next_ball = self.next_ball.wrapping_add(1).max(1);
+                        self.balls.push(Snowball::new(id, at.x, at.y));
+                        self.collect_snow(window, id, at, at, now, settings);
+                        self.gesture = Some(Gesture::Rolling {
+                            window,
+                            ball: id,
+                            sampled: at,
+                        });
+                        self.changed = true;
+                    }
+                    Grab::Ball(id) => {
+                        let Some(ball) = self.balls.iter_mut().find(|ball| ball.id == id) else {
+                            return;
+                        };
+                        ball.parent = None;
+                        ball.grounded = false;
+                        ball.vx = 0.0;
+                        ball.vy = 0.0;
+                        snowball::move_with_children(&mut self.balls, id, at.x, at.y);
+                        self.gesture = Some(Gesture::Dragging { ball: id });
+                        self.changed = true;
+                    }
+                }
+            }
+            MouseAction::Move(at) | MouseAction::Up(at) => {
+                let released = matches!(action, MouseAction::Up(_));
+                let Some(gesture) = self.gesture.take() else {
+                    return;
+                };
+                match gesture {
+                    Gesture::Rolling { window, ball, sampled } => {
+                        snowball::move_with_children(&mut self.balls, ball, at.x, at.y);
+                        let sampled = if (at.x - sampled.x).abs() >= 8.0
+                            || (at.y - sampled.y).abs() >= 12.0
+                        {
+                            self.collect_snow(window, ball, sampled, at, now, settings);
+                            at
+                        } else {
+                            sampled
+                        };
+                        if released {
+                            self.finish_ball(ball);
+                        } else {
+                            self.gesture = Some(Gesture::Rolling { window, ball, sampled });
+                        }
+                        self.changed = true;
+                    }
+                    Gesture::Dragging { ball } => {
+                        snowball::move_with_children(&mut self.balls, ball, at.x, at.y);
+                        if released {
+                            self.finish_ball(ball);
+                        } else {
+                            self.gesture = Some(Gesture::Dragging { ball });
+                        }
+                        self.changed = true;
+                    }
+                }
+            }
+        }
+    }
+
+    fn finish_ball(&mut self, id: u64) {
+        if self.balls.iter().find(|ball| ball.id == id).is_some_and(|ball| !ball.is_formed()) {
+            self.balls.retain(|ball| ball.id != id);
+            return;
+        }
+        if snowball::try_stack(&mut self.balls, id) {
+            return;
+        }
+        if let Some(ball) = self.balls.iter_mut().find(|ball| ball.id == id) {
+            ball.grounded = false;
+            ball.vx = 0.0;
+            ball.vy = 0.0;
+        }
+    }
+
+    fn collect_snow(
+        &mut self,
+        window_id: usize,
+        ball_id: u64,
+        from: Pointer,
+        to: Pointer,
+        now: Instant,
+        settings: &Settings,
+    ) {
+        let Some(window) = self.windows.iter().find(|w| w.id == window_id) else {
+            return;
+        };
+        let bounds = window.bounds;
+        let Some(cap) = self.caps.get_mut(&window_id) else {
+            return;
+        };
+        let height = cap.snow.height_at(now, self.rate, self.max_height);
+        if height < 2.0 || bounds.width() <= 0 {
+            return;
+        }
+        let shape = SnowCap {
+            width: bounds.width(),
+            depth: height,
+            roughness: settings.roughness / 100.0,
+            seed: cap.seed,
+            icicles: settings.icicles,
+        };
+        let distance = ((to.x - from.x).abs().max((to.y - from.y).abs()) / 7.0)
+            .ceil()
+            .clamp(1.0, 200.0) as usize;
+        let mut last_segment = None;
+        let mut collected = 0.0;
+        for step in 0..=distance {
+            let t = step as f32 / distance as f32;
+            let x = from.x + (to.x - from.x) * t;
+            let y = from.y + (to.y - from.y) * t;
+            if x < bounds.left as f32
+                || x >= bounds.right as f32
+                || y < bounds.top as f32 - height - 9.0
+                || y > bounds.top as f32 + 4.0
+            {
+                continue;
+            }
+            let local_x = (x as i32 - bounds.left).max(0);
+            let segment = local_x as usize / SNOW_SEGMENT;
+            if last_segment == Some(segment) {
+                continue;
+            }
+            last_segment = Some(segment);
+            let Some(removed) = cap.removed.get_mut(segment) else {
+                continue;
+            };
+            let middle = (segment * SNOW_SEGMENT + SNOW_SEGMENT / 2)
+                .min(bounds.width() as usize - 1) as f32;
+            let available = (shape.sample_height(middle) - *removed).max(0.0);
+            let taken = available.min(3.5);
+            *removed += taken;
+            collected += taken * SNOW_SEGMENT as f32;
+        }
+        if collected > 0.0 {
+            cap.bitmap = None;
+            if let Some(ball) = self.balls.iter_mut().find(|ball| ball.id == ball_id) {
+                ball.collect(collected);
+            }
+            self.changed = true;
+        }
+    }
+
+    fn advance_balls(&mut self, now: Instant, paused: bool, sleeping: bool, settings: &Settings) {
+        let dt = now.saturating_duration_since(self.last_ball_physics).as_secs_f32().min(0.05);
+        self.last_ball_physics = now;
+        if paused || sleeping || !settings.snowballs || dt <= 0.0 {
+            return;
+        }
+        let moving = self.gesture.map(|g| match g {
+            Gesture::Rolling { ball, .. } | Gesture::Dragging { ball } => ball,
+        });
+        let ids: Vec<u64> = self.balls.iter()
+            .filter(|ball| ball.parent.is_none() && !ball.grounded && Some(ball.id) != moving)
+            .map(|ball| ball.id)
+            .collect();
+        for id in ids {
+            let Some(ball) = self.balls.iter().find(|ball| ball.id == id).copied() else {
+                continue;
+            };
+            let display = self.displays.iter().find(|d| {
+                ball.x >= d.bounds.left as f32 && ball.x < d.bounds.right as f32
+            });
+            let Some(display) = display else {
+                continue;
+            };
+            if settings.fullscreen_pause && self.windows.iter()
+                .find(|w| w.visible && w.bounds.intersects(display.bounds))
+                .is_some_and(|w| w.bounds.covers(display.bounds))
+            {
+                continue;
+            }
+            let vy = ball.vy + snowball::GRAVITY * dt;
+            let mut y = ball.y + vy * dt;
+            let floor = display.bounds.bottom as f32 - ball.radius() - 1.0;
+            if y >= floor {
+                y = floor;
+            }
+            snowball::move_with_children(&mut self.balls, id, ball.x, y);
+            if let Some(moved) = self.balls.iter_mut().find(|b| b.id == id) {
+                moved.vy = if y >= floor { 0.0 } else { vy };
+                moved.grounded = y >= floor;
+            }
+            self.changed = true;
+        }
     }
 
     fn update_shake(&mut self, now: Instant, settings: &Settings, suspended: bool) {
