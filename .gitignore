@@ -1,0 +1,5 @@
+/target/
+*.pdb
+.env
+.env.*
+weather-key.bin

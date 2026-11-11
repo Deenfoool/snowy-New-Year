@@ -1,0 +1,1546 @@
+use crate::{
+    icons,
+    settings::Settings,
+    shake::Shake,
+    snowcap::SnowCap,
+    weather::{self, Observation},
+};
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    mem::{size_of, zeroed},
+    ptr::{null, null_mut},
+    sync::{mpsc, Arc, Mutex},
+    time::{Duration, Instant},
+};
+use windows_sys::{
+    core::{w, GUID},
+    Win32::{
+        Foundation::*,
+        Graphics::{Dwm::*, Gdi::*},
+        System::{
+            LibraryLoader::GetModuleHandleW, Power::*, RemoteDesktop::*,
+            Threading::GetCurrentThreadId,
+        },
+        UI::{Accessibility::*, Shell::*, WindowsAndMessaging::*},
+    },
+};
+
+const TRAY: u32 = WM_APP + 1;
+const WAKE: u32 = WM_APP + 2;
+const STOP: u32 = WM_APP + 3;
+const OPEN: u32 = WM_APP + 4;
+const GEOMETRY: u32 = WM_APP + 5;
+const SCAN_TIMER: usize = 1;
+const FRAME_TIMER: usize = 2;
+const RESTORE_TIMER: usize = 3;
+const CONTROLLER: windows_sys::core::PCWSTR = w!("SnowyNewYearController");
+const SURFACE: windows_sys::core::PCWSTR = w!("SnowyNewYearSurface");
+const DISPLAY_STATE: GUID = GUID::from_u128(0x6fe69556_704a_47a0_8f24_c28d936fda47);
+
+#[derive(Clone, Copy)]
+pub enum Action {
+    Open,
+    Pause,
+    Falling,
+    Caps,
+    Weather,
+    Exit,
+}
+
+#[derive(Clone, Default)]
+pub struct Diagnostics {
+    pub tracked: usize,
+    pub caps: usize,
+    pub bottom_edges: usize,
+    pub particles: usize,
+    pub fps: u32,
+    pub reason: &'static str,
+    pub monitors: Vec<(String, String)>,
+}
+
+pub struct Shared {
+    pub settings: Settings,
+    pub paused: bool,
+    pub observation: Option<Observation>,
+    pub diagnostics: Diagnostics,
+    pub weather_error: bool,
+}
+
+pub struct Overlay {
+    controller: usize,
+    thread: Option<std::thread::JoinHandle<()>>,
+    pub shared: Arc<Mutex<Shared>>,
+    pub actions: mpsc::Receiver<Action>,
+    pub tray_ready: bool,
+}
+
+impl Overlay {
+    pub fn start(
+        settings: Settings,
+        observation: Option<Observation>,
+        context: eframe::egui::Context,
+    ) -> Result<Self, String> {
+        let shared = Arc::new(Mutex::new(Shared {
+            settings,
+            paused: false,
+            observation,
+            diagnostics: Diagnostics::default(),
+            weather_error: false,
+        }));
+        let (action_tx, actions) = mpsc::channel();
+        let (ready_tx, ready_rx) = mpsc::sync_channel(1);
+        let copy = shared.clone();
+        let thread = std::thread::spawn(move || unsafe {
+            if let Err(error) = run(copy, context, action_tx, &ready_tx) {
+                let _ = ready_tx.send(Err(error));
+            }
+        });
+        let (controller, tray_ready) = ready_rx.recv().map_err(|e| e.to_string())??;
+        Ok(Self {
+            controller,
+            thread: Some(thread),
+            shared,
+            actions,
+            tray_ready,
+        })
+    }
+
+    pub fn wake(&self) {
+        unsafe {
+            PostMessageW(self.controller as HWND, WAKE, 0, 0);
+        }
+    }
+}
+
+impl Drop for Overlay {
+    fn drop(&mut self) {
+        unsafe {
+            PostMessageW(self.controller as HWND, STOP, 0, 0);
+        }
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+pub fn open_existing() {
+    unsafe {
+        let window = FindWindowW(CONTROLLER, null());
+        if !window.is_null() {
+            PostMessageW(window, OPEN, 0, 0);
+        }
+    }
+}
+
+pub fn wide(text: &str) -> Vec<u16> {
+    text.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+#[derive(Default)]
+struct Events {
+    controller: usize,
+    actions: Vec<Action>,
+    destroyed: Vec<usize>,
+    dragging: Option<(usize, Instant)>,
+    minimizing: HashMap<usize, Instant>,
+    restore_pending: bool,
+    locked: bool,
+    display_off: bool,
+    suspended: bool,
+    geometry_pending: bool,
+    displays_dirty: bool,
+    restore_tray: bool,
+    tray_message: u32,
+}
+
+thread_local! { static EVENTS: RefCell<Events> = RefCell::new(Events::default()); }
+
+fn queue_geometry() {
+    let controller = EVENTS.with_borrow_mut(|events| {
+        if events.geometry_pending {
+            return 0;
+        }
+        events.geometry_pending = true;
+        events.controller
+    });
+    if controller != 0 && unsafe { PostMessageW(controller as HWND, GEOMETRY, 0, 0) } == 0 {
+        EVENTS.with_borrow_mut(|events| events.geometry_pending = false);
+    }
+}
+
+unsafe extern "system" fn controller_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+    match msg {
+        STOP | WM_CLOSE => {
+            PostQuitMessage(0);
+        }
+        OPEN => EVENTS.with_borrow_mut(|events| events.actions.push(Action::Open)),
+        TRAY if lp as u32 == WM_LBUTTONDBLCLK => {
+            EVENTS.with_borrow_mut(|events| events.actions.push(Action::Open));
+        }
+        TRAY if lp as u32 == WM_RBUTTONUP => {
+            if let Some(action) = tray_menu(hwnd) {
+                EVENTS.with_borrow_mut(|events| events.actions.push(action));
+            }
+        }
+        WM_DISPLAYCHANGE | WM_SETTINGCHANGE => {
+            EVENTS.with_borrow_mut(|events| events.displays_dirty = true);
+            queue_geometry();
+        }
+        GEOMETRY => {}
+        WM_WTSSESSION_CHANGE => EVENTS.with_borrow_mut(|events| match wp as u32 {
+            WTS_SESSION_LOCK => events.locked = true,
+            WTS_SESSION_UNLOCK => events.locked = false,
+            _ => {}
+        }),
+        WM_POWERBROADCAST => {
+            EVENTS.with_borrow_mut(|events| match wp as u32 {
+                PBT_APMSUSPEND => events.suspended = true,
+                PBT_APMRESUMEAUTOMATIC | PBT_APMRESUMESUSPEND => events.suspended = false,
+                PBT_POWERSETTINGCHANGE if lp != 0 => {
+                    let data = &*(lp as *const POWERBROADCAST_SETTING);
+                    if data.PowerSetting.data1 == DISPLAY_STATE.data1 && data.DataLength >= 4 {
+                        events.display_off = data.Data[0] == 0;
+                    }
+                }
+                _ => {}
+            });
+            return 1;
+        }
+        _ => {
+            let recreated = EVENTS.with_borrow_mut(|events| {
+                let matched = msg != 0 && msg == events.tray_message;
+                events.restore_tray |= matched;
+                matched
+            });
+            if !recreated {
+                return DefWindowProcW(hwnd, msg, wp, lp);
+            }
+        }
+    }
+    0
+}
+
+unsafe extern "system" fn surface_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+    if msg == WM_NCHITTEST {
+        return HTTRANSPARENT as LRESULT;
+    }
+    if msg == WM_MOUSEACTIVATE {
+        return MA_NOACTIVATE as LRESULT;
+    }
+    DefWindowProcW(hwnd, msg, wp, lp)
+}
+
+unsafe extern "system" fn win_event(
+    _: HWINEVENTHOOK,
+    event: u32,
+    hwnd: HWND,
+    object: i32,
+    child: i32,
+    _: u32,
+    _: u32,
+) {
+    if hwnd.is_null() || object != OBJID_WINDOW || child != 0 {
+        return;
+    }
+    if !matches!(
+        event,
+        EVENT_OBJECT_CREATE
+            | EVENT_OBJECT_DESTROY
+            | EVENT_OBJECT_SHOW
+            | EVENT_OBJECT_HIDE
+            | EVENT_OBJECT_REORDER
+            | EVENT_OBJECT_LOCATIONCHANGE
+            | EVENT_OBJECT_CLOAKED
+            | EVENT_OBJECT_UNCLOAKED
+            | EVENT_SYSTEM_FOREGROUND
+            | EVENT_SYSTEM_MOVESIZESTART
+            | EVENT_SYSTEM_MOVESIZEEND
+            | EVENT_SYSTEM_MINIMIZESTART
+            | EVENT_SYSTEM_MINIMIZEEND
+    ) {
+        return;
+    }
+    let owner = GetWindowThreadProcessId(hwnd, null_mut());
+    if owner == GetCurrentThreadId()
+        || event != EVENT_OBJECT_DESTROY && GetAncestor(hwnd, GA_ROOT) != hwnd
+    {
+        return;
+    }
+    let id = hwnd as usize;
+    EVENTS.with_borrow_mut(|events| {
+        if events.dragging.is_some_and(|(window, _)| window == id)
+            && matches!(
+                event,
+                EVENT_SYSTEM_MOVESIZEEND | EVENT_OBJECT_DESTROY | EVENT_SYSTEM_MINIMIZESTART
+            )
+        {
+            events.dragging = None;
+        }
+        match event {
+            EVENT_SYSTEM_MOVESIZESTART => events.dragging = Some((id, Instant::now())),
+            EVENT_OBJECT_DESTROY => {
+                events.destroyed.push(id);
+                events.minimizing.remove(&id);
+            }
+            EVENT_SYSTEM_MINIMIZESTART => {
+                events.minimizing.insert(id, Instant::now());
+            }
+            EVENT_SYSTEM_MINIMIZEEND => {
+                events.minimizing.remove(&id);
+                events.restore_pending = true;
+            }
+            _ => {}
+        }
+    });
+    queue_geometry();
+}
+
+unsafe fn tray_menu(hwnd: HWND) -> Option<Action> {
+    let menu = CreatePopupMenu();
+    if menu.is_null() {
+        return None;
+    }
+    for (id, label) in [
+        (1, "Открыть приложение"),
+        (2, "Пауза / продолжить"),
+        (3, "Переключить снегопад"),
+        (4, "Переключить снежные шапки"),
+        (5, "Переключить режим погоды"),
+    ] {
+        AppendMenuW(menu, MF_STRING, id, wide(label).as_ptr());
+    }
+    AppendMenuW(menu, MF_SEPARATOR, 0, null());
+    AppendMenuW(menu, MF_STRING, 6, w!("Полностью выйти"));
+    let mut cursor: POINT = zeroed();
+    GetCursorPos(&mut cursor);
+    SetForegroundWindow(hwnd);
+    let result = TrackPopupMenu(
+        menu,
+        TPM_RETURNCMD | TPM_RIGHTBUTTON,
+        cursor.x,
+        cursor.y,
+        0,
+        hwnd,
+        null(),
+    );
+    PostMessageW(hwnd, WM_NULL, 0, 0);
+    DestroyMenu(menu);
+    match result {
+        1 => Some(Action::Open),
+        2 => Some(Action::Pause),
+        3 => Some(Action::Falling),
+        4 => Some(Action::Caps),
+        5 => Some(Action::Weather),
+        6 => Some(Action::Exit),
+        _ => None,
+    }
+}
+
+unsafe fn icon(instance: HINSTANCE, state: usize) -> HICON {
+    let mut data = *icons::tray_badge(state);
+    let mut mask = [0u8; 128];
+    for (i, pixel) in data.chunks_exact_mut(4).enumerate() {
+        if pixel[3] == 0 {
+            mask[i / 8] |= 0x80 >> (i % 8);
+        }
+        pixel.swap(0, 2);
+    }
+    let size = icons::BADGE_SIZE as i32;
+    CreateIcon(instance, size, size, 1, 32, mask.as_ptr(), data.as_ptr())
+}
+
+fn tip(data: &mut NOTIFYICONDATAW, state: u8) {
+    let title = match state {
+        1 => "Snowy New Year · пауза",
+        2 => "Snowy New Year · ошибка погоды",
+        _ => "Snowy New Year · эффекты включены",
+    };
+    data.szTip.fill(0);
+    for (slot, value) in data.szTip.iter_mut().zip(title.encode_utf16()) {
+        *slot = value;
+    }
+}
+
+unsafe fn run(
+    shared: Arc<Mutex<Shared>>,
+    ctx: eframe::egui::Context,
+    actions: mpsc::Sender<Action>,
+    ready: &mpsc::SyncSender<Result<(usize, bool), String>>,
+) -> Result<(), String> {
+    let instance = GetModuleHandleW(null());
+    for (class, proc) in [
+        (CONTROLLER, controller_proc as WindowProc),
+        (SURFACE, surface_proc),
+    ] {
+        let class = WNDCLASSW {
+            lpfnWndProc: Some(proc),
+            hInstance: instance,
+            lpszClassName: class,
+            ..zeroed()
+        };
+        if RegisterClassW(&class) == 0 {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+    }
+    let hwnd = CreateWindowExW(
+        WS_EX_TOOLWINDOW,
+        CONTROLLER,
+        w!("Snowy New Year · Engine"),
+        WS_POPUP,
+        0,
+        0,
+        0,
+        0,
+        null_mut(),
+        null_mut(),
+        instance,
+        null(),
+    );
+    if hwnd.is_null() {
+        return Err(std::io::Error::last_os_error().to_string());
+    }
+    let tray_message = RegisterWindowMessageW(w!("TaskbarCreated"));
+    EVENTS.with_borrow_mut(|events| {
+        events.controller = hwnd as usize;
+        events.tray_message = tray_message;
+    });
+    let icons = [icon(instance, 0), icon(instance, 1), icon(instance, 2)];
+    let mut notify: NOTIFYICONDATAW = zeroed();
+    notify.cbSize = size_of::<NOTIFYICONDATAW>() as u32;
+    notify.hWnd = hwnd;
+    notify.uID = 1;
+    notify.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
+    notify.uCallbackMessage = TRAY;
+    notify.hIcon = icons[0];
+    tip(&mut notify, 0);
+    let tray_ready = Shell_NotifyIconW(NIM_ADD, &notify) != 0;
+    let mut tray_state = 0;
+    let hooks = [
+        (EVENT_OBJECT_CREATE, EVENT_OBJECT_LOCATIONCHANGE),
+        (EVENT_OBJECT_CLOAKED, EVENT_OBJECT_UNCLOAKED),
+        (EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND),
+        (EVENT_SYSTEM_MOVESIZESTART, EVENT_SYSTEM_MOVESIZEEND),
+        (EVENT_SYSTEM_MINIMIZESTART, EVENT_SYSTEM_MINIMIZEEND),
+    ]
+    .map(|(first, last)| {
+        let hook = SetWinEventHook(
+            first,
+            last,
+            null_mut(),
+            Some(win_event),
+            0,
+            0,
+            WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNTHREAD,
+        );
+        if hook.is_null() {
+            crate::settings::log(&format!("SetWinEventHook failed: {first:#x}..{last:#x}"));
+        }
+        hook
+    });
+    WTSRegisterSessionNotification(hwnd, NOTIFY_FOR_THIS_SESSION);
+    let power = RegisterPowerSettingNotification(hwnd, &DISPLAY_STATE, DEVICE_NOTIFY_WINDOW_HANDLE);
+    SetTimer(hwnd, SCAN_TIMER, 300, None);
+    let mut engine = Engine::new(instance);
+    engine.scan_displays();
+    engine.scan_windows();
+    let _ = ready.send(Ok((hwnd as usize, tray_ready)));
+    PostMessageW(hwnd, WAKE, 0, 0);
+    let mut message: MSG = zeroed();
+    let mut frame_interval = 0;
+    while GetMessageW(&mut message, null_mut(), 0, 0) > 0 {
+        DispatchMessageW(&message);
+        let (actions_now, sleeping, restore_tray) = EVENTS.with_borrow_mut(|events| {
+            (
+                std::mem::take(&mut events.actions),
+                events.locked || events.display_off || events.suspended,
+                std::mem::take(&mut events.restore_tray),
+            )
+        });
+        for action in actions_now {
+            let _ = actions.send(action);
+            ctx.request_repaint();
+        }
+        let slow_tick = message.message == WM_TIMER && message.wParam == SCAN_TIMER;
+        let restored = message.message == WM_TIMER && message.wParam == RESTORE_TIMER;
+        if restored {
+            KillTimer(hwnd, RESTORE_TIMER);
+        }
+        let geometry = message.message == GEOMETRY;
+        let reconcile = slow_tick && engine.last_reconcile.elapsed() >= Duration::from_secs(2);
+        if geometry || restored || reconcile {
+            let (destroyed, displays_dirty, restore_pending) = EVENTS.with_borrow_mut(|events| {
+                if geometry {
+                    events.geometry_pending = false;
+                }
+                (
+                    std::mem::take(&mut events.destroyed),
+                    std::mem::take(&mut events.displays_dirty),
+                    std::mem::take(&mut events.restore_pending),
+                )
+            });
+            for id in destroyed {
+                engine.caps.remove(&id);
+            }
+            if displays_dirty || reconcile {
+                engine.scan_displays();
+            }
+            if reconcile {
+                engine.last_reconcile = Instant::now();
+            }
+            engine.scan_windows();
+            if restore_pending {
+                SetTimer(hwnd, RESTORE_TIMER, 32, None);
+            }
+        }
+        let now = Instant::now();
+        let wake = message.message == WAKE;
+        if wake {
+            engine.changed = true;
+        }
+        let frame = message.message == WM_TIMER && message.wParam == FRAME_TIMER;
+        if !(slow_tick
+            || frame
+            || wake
+            || restore_tray
+            || geometry
+            || restored
+            || message.message == WM_POWERBROADCAST
+            || message.message == WM_WTSSESSION_CHANGE)
+        {
+            continue;
+        }
+        let (settings, paused, observation, weather_error) = {
+            let state = shared.lock().unwrap();
+            (
+                state.settings.clone(),
+                state.paused,
+                state.observation.clone(),
+                state.weather_error,
+            )
+        };
+        let desired = if paused {
+            1
+        } else if weather_error {
+            2
+        } else {
+            0
+        };
+        if tray_state != desired || restore_tray {
+            tray_state = desired;
+            notify.hIcon = icons[desired as usize];
+            tip(&mut notify, desired);
+            Shell_NotifyIconW(if restore_tray { NIM_ADD } else { NIM_MODIFY }, &notify);
+        }
+        let conditions = weather::conditions(&settings, observation.as_ref(), now);
+        let expiry = observation.as_ref().map(Observation::expires);
+        let diag = engine.tick(
+            now,
+            &settings,
+            conditions,
+            expiry,
+            paused,
+            sleeping,
+            frame || wake,
+        );
+        let desired = if diag.particles > 0 {
+            1000u32.div_ceil(settings.fps).max(10)
+        } else {
+            0
+        };
+        if desired != frame_interval {
+            KillTimer(hwnd, FRAME_TIMER);
+            if desired != 0 {
+                SetTimer(hwnd, FRAME_TIMER, desired, None);
+            }
+            frame_interval = desired;
+        }
+        shared.lock().unwrap().diagnostics = diag;
+    }
+    Shell_NotifyIconW(NIM_DELETE, &notify);
+    for icon in icons {
+        if !icon.is_null() {
+            DestroyIcon(icon);
+        }
+    }
+    for hook in hooks {
+        if !hook.is_null() {
+            UnhookWinEvent(hook);
+        }
+    }
+    if power != 0 {
+        UnregisterPowerSettingNotification(power);
+    }
+    WTSUnRegisterSessionNotification(hwnd);
+    DestroyWindow(hwnd);
+    Ok(())
+}
+
+type WindowProc = unsafe extern "system" fn(HWND, u32, WPARAM, LPARAM) -> LRESULT;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+struct Bounds {
+    left: i32,
+    top: i32,
+    right: i32,
+    bottom: i32,
+}
+
+impl From<RECT> for Bounds {
+    fn from(r: RECT) -> Self {
+        Self {
+            left: r.left,
+            top: r.top,
+            right: r.right,
+            bottom: r.bottom,
+        }
+    }
+}
+
+impl Bounds {
+    fn width(self) -> i32 {
+        self.right - self.left
+    }
+    fn height(self) -> i32 {
+        self.bottom - self.top
+    }
+    fn contains(self, x: i32, y: i32) -> bool {
+        self.left <= x && x < self.right && self.top <= y && y < self.bottom
+    }
+    fn intersects(self, b: Self) -> bool {
+        self.left < b.right && b.left < self.right && self.top < b.bottom && b.top < self.bottom
+    }
+    fn covers(self, b: Self) -> bool {
+        self.left <= b.left + 2
+            && self.right >= b.right - 2
+            && self.top <= b.top + 2
+            && self.bottom >= b.bottom - 2
+    }
+}
+
+struct Display {
+    bounds: Bounds,
+    work_area: Bounds,
+    name: String,
+}
+
+unsafe extern "system" fn enumerate_display(
+    monitor: HMONITOR,
+    _: HDC,
+    _: *mut RECT,
+    data: LPARAM,
+) -> BOOL {
+    let displays = &mut *(data as *mut Vec<Display>);
+    let mut info: MONITORINFOEXW = zeroed();
+    info.monitorInfo.cbSize = size_of::<MONITORINFOEXW>() as u32;
+    if GetMonitorInfoW(monitor, &mut info.monitorInfo) != 0 {
+        let end = info
+            .szDevice
+            .iter()
+            .position(|&c| c == 0)
+            .unwrap_or(info.szDevice.len());
+        displays.push(Display {
+            bounds: info.monitorInfo.rcMonitor.into(),
+            work_area: info.monitorInfo.rcWork.into(),
+            name: String::from_utf16_lossy(&info.szDevice[..end]),
+        });
+    }
+    1
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct Window {
+    id: usize,
+    process: u32,
+    thread: u32,
+    bounds: Bounds,
+    visible: bool,
+    cap: bool,
+    maximized: bool,
+}
+
+impl Window {
+    fn shows_cap(self, displays: &[Display]) -> bool {
+        self.cap
+            && self.visible
+            && !self.maximized
+            && !displays.iter().any(|display| {
+                self.bounds.covers(display.bounds) || self.bounds.covers(display.work_area)
+            })
+    }
+}
+
+unsafe extern "system" fn enumerate_window(hwnd: HWND, data: LPARAM) -> BOOL {
+    if IsWindowVisible(hwnd) == 0 {
+        return 1;
+    }
+    let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
+    let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
+    if style & WS_CHILD != 0 || ex_style & WS_EX_TRANSPARENT != 0 {
+        return 1;
+    }
+    let mut class = [0u16; 128];
+    let len = GetClassNameW(hwnd, class.as_mut_ptr(), class.len() as i32);
+    let class = String::from_utf16_lossy(&class[..len.max(0) as usize]);
+    if matches!(
+        class.as_str(),
+        "Progman"
+            | "WorkerW"
+            | "Shell_TrayWnd"
+            | "Shell_SecondaryTrayWnd"
+            | "SnowyNewYearSurface"
+            | "SnowyNewYearController"
+    ) {
+        return 1;
+    }
+    let mut cloaked = 0u32;
+    DwmGetWindowAttribute(
+        hwnd,
+        DWMWA_CLOAKED as u32,
+        (&mut cloaked as *mut u32).cast(),
+        4,
+    );
+    let visible = IsIconic(hwnd) == 0 && cloaked == 0;
+    let mut rect: RECT = zeroed();
+    if DwmGetWindowAttribute(
+        hwnd,
+        DWMWA_EXTENDED_FRAME_BOUNDS as u32,
+        (&mut rect as *mut RECT).cast(),
+        size_of::<RECT>() as u32,
+    ) < 0
+    {
+        GetWindowRect(hwnd, &mut rect);
+    }
+    let bounds = Bounds::from(rect);
+    let mut process = 0;
+    let thread = GetWindowThreadProcessId(hwnd, &mut process);
+    if thread != 0 {
+        let cap = ex_style & WS_EX_TOOLWINDOW == 0
+            && (style & WS_CAPTION == WS_CAPTION || GetWindowTextLengthW(hwnd) > 0);
+        (&mut *(data as *mut Vec<Window>)).push(Window {
+            id: hwnd as usize,
+            process,
+            thread,
+            bounds,
+            visible,
+            cap,
+            maximized: IsZoomed(hwnd) != 0,
+        });
+    }
+    1
+}
+
+struct Cap {
+    process: u32,
+    thread: u32,
+    seed: u32,
+    snow: SnowDepth,
+    bitmap: Option<CapBitmap>,
+}
+
+struct CapBitmap {
+    shape: SnowCap,
+    pixels: Vec<(i32, i32, u32)>,
+}
+
+struct SnowDepth {
+    height: f32,
+    updated: Instant,
+}
+
+impl SnowDepth {
+    fn height_at(&self, now: Instant, rate: f32, limit: f32) -> f32 {
+        let seconds = now.saturating_duration_since(self.updated).as_secs_f32();
+        (self.height + seconds * rate).clamp(0.0, limit)
+    }
+
+    fn advance(&mut self, end: Instant, now: Instant, rate: f32, old_limit: f32, new_limit: f32) {
+        self.height = self.height_at(end, rate, old_limit).min(new_limit);
+        self.updated = now;
+    }
+}
+
+impl CapBitmap {
+    fn pixels(cache: &mut Option<Self>, shape: SnowCap) -> &[(i32, i32, u32)] {
+        let bitmap = cache.get_or_insert_with(|| Self {
+            shape,
+            pixels: Vec::new(),
+        });
+        if bitmap.shape != shape || bitmap.pixels.is_empty() {
+            bitmap.shape = shape;
+            bitmap.pixels.clear();
+            shape.rasterize(0..shape.width, shape.rows(), |x, y, pixel| {
+                bitmap.pixels.push((x, y, pixel));
+            });
+        }
+        &bitmap.pixels
+    }
+}
+
+struct Engine {
+    instance: HINSTANCE,
+    windows: Vec<Window>,
+    caps: HashMap<usize, Cap>,
+    displays: Vec<Display>,
+    surfaces: HashMap<String, Canvas>,
+    random: u32,
+    drag: Option<WindowDrag>,
+    loose_snow: Vec<LooseSnow>,
+    bottom_snow: SnowDepth,
+    last_reconcile: Instant,
+    last_animation: Instant,
+    rate: f32,
+    bottom_rate: f32,
+    expiry: Option<Instant>,
+    max_height: f32,
+    changed: bool,
+    frames: u32,
+    fps: u32,
+    fps_since: Instant,
+}
+
+struct WindowDrag {
+    session: (usize, Instant),
+    size: (i32, i32),
+    shake: Option<Shake>,
+}
+
+const SHED_TIME: f32 = 1.05;
+
+struct LooseSnow {
+    start: Instant,
+    x: f32,
+    y: f32,
+    vx: f32,
+    vy: f32,
+    size: f32,
+}
+
+impl LooseSnow {
+    fn age(&self, now: Instant) -> f32 {
+        now.saturating_duration_since(self.start).as_secs_f32()
+    }
+
+    fn sample(&self, now: Instant) -> SnowParticle {
+        let t = self.age(now);
+        SnowParticle {
+            x: self.x + self.vx * t,
+            y: self.y + self.vy * t + 265.0 * t * t,
+            radius: self.size * (1.0 - 0.30 * t),
+            opacity: (1.0 - t / SHED_TIME).min(0.96) * 255.0,
+        }
+    }
+}
+
+struct SnowParticle {
+    x: f32,
+    y: f32,
+    radius: f32,
+    opacity: f32,
+}
+
+fn random(seed: &mut u32) -> f32 {
+    *seed ^= *seed << 13;
+    *seed ^= *seed >> 17;
+    *seed ^= *seed << 5;
+    (*seed >> 8) as f32 / (1u32 << 24) as f32
+}
+
+impl Engine {
+    fn new(instance: HINSTANCE) -> Self {
+        let now = Instant::now();
+        Self {
+            instance,
+            windows: Vec::new(),
+            caps: HashMap::new(),
+            displays: Vec::new(),
+            surfaces: HashMap::new(),
+            random: 0xc41f_543e,
+            drag: None,
+            loose_snow: Vec::new(),
+            bottom_snow: SnowDepth {
+                height: 0.0,
+                updated: now,
+            },
+            last_reconcile: now,
+            last_animation: now,
+            rate: 0.0,
+            bottom_rate: 0.0,
+            expiry: None,
+            max_height: 18.0,
+            changed: true,
+            frames: 0,
+            fps: 0,
+            fps_since: now,
+        }
+    }
+
+    unsafe fn scan_windows(&mut self) {
+        let now = Instant::now();
+        let mut windows: Vec<Window> = Vec::new();
+        EnumWindows(
+            Some(enumerate_window),
+            (&mut windows as *mut Vec<Window>) as LPARAM,
+        );
+        EVENTS.with_borrow_mut(|events| {
+            events.minimizing.retain(|_, started| {
+                now.saturating_duration_since(*started) < Duration::from_millis(450)
+            });
+            for window in &mut windows {
+                window.visible &= !events.minimizing.contains_key(&window.id);
+            }
+        });
+        self.changed |= self.windows != windows;
+        self.windows = windows;
+        self.caps.retain(|id, cap| {
+            // Preserve hidden windows. Destruction invalidates this entry via the event hook.
+            let mut process = 0;
+            let thread = GetWindowThreadProcessId(*id as HWND, &mut process);
+            process == cap.process && thread == cap.thread
+        });
+        for window in self.windows.iter().filter(|window| window.cap) {
+            self.caps.entry(window.id).or_insert_with(|| Cap {
+                process: window.process,
+                thread: window.thread,
+                seed: (random(&mut self.random) * 16_777_216.0) as u32,
+                snow: SnowDepth {
+                    height: 0.0,
+                    updated: now,
+                },
+                bitmap: None,
+            });
+        }
+    }
+
+    unsafe fn scan_displays(&mut self) {
+        self.displays.clear();
+        EnumDisplayMonitors(
+            null_mut(),
+            null(),
+            Some(enumerate_display),
+            (&mut self.displays as *mut Vec<Display>) as LPARAM,
+        );
+        self.surfaces.retain(|name, canvas| {
+            self.displays
+                .iter()
+                .any(|display| display.name == *name && display.bounds == canvas.bounds)
+        });
+    }
+
+    fn update_shake(&mut self, now: Instant, settings: &Settings, suspended: bool) {
+        let Some(session) = EVENTS.with_borrow(|events| events.dragging) else {
+            self.drag = None;
+            return;
+        };
+        let target = self.windows.iter().find(|window| window.id == session.0);
+        let Some(window) = target
+            .filter(|window| {
+                !suspended
+                    && settings.caps
+                    && settings.shake_to_clear
+                    && window.shows_cap(&self.displays)
+            })
+            .copied()
+        else {
+            self.drag = None;
+            return;
+        };
+        let r = window.bounds;
+        let size = (r.width(), r.height());
+        if self
+            .drag
+            .as_ref()
+            .is_none_or(|drag| drag.session != session)
+        {
+            self.drag = Some(WindowDrag {
+                session,
+                size,
+                shake: Some(Shake::new(r.left, r.top, now)),
+            });
+        }
+        let drag = self.drag.as_mut().unwrap();
+        if drag.size != size {
+            drag.shake = None;
+        }
+        let Some(direction) = drag
+            .shake
+            .as_mut()
+            .and_then(|shake| shake.observe(r.left, r.top, now))
+        else {
+            return;
+        };
+        let Some(cap) = self.caps.get_mut(&window.id) else {
+            return;
+        };
+        let depth = cap.snow.height_at(now, self.rate, self.max_height);
+        if depth < 1.0 {
+            return;
+        }
+        cap.snow = SnowDepth {
+            height: 0.0,
+            updated: now,
+        };
+        cap.bitmap = None;
+        self.changed = true;
+        let count = ((r.width() as f32 / 20.0) * (depth / 12.0).sqrt()).clamp(10.0, 52.0) as usize;
+        for i in 0..count.min(128usize.saturating_sub(self.loose_snow.len())) {
+            let spread = (i as f32 + random(&mut self.random)) / count as f32;
+            self.loose_snow.push(LooseSnow {
+                start: now,
+                x: r.left as f32 + spread * r.width() as f32,
+                y: r.top as f32 - random(&mut self.random) * depth * 0.68,
+                vx: direction as f32 * 72.0 + (random(&mut self.random) - 0.5) * 190.0,
+                vy: -18.0 - random(&mut self.random) * 94.0,
+                size: 1.3 + random(&mut self.random) * (depth * 0.24).clamp(1.2, 4.8),
+            });
+        }
+    }
+
+    fn tick(
+        &mut self,
+        now: Instant,
+        s: &Settings,
+        weather: weather::Conditions,
+        expiry: Option<Instant>,
+        paused: bool,
+        sleeping: bool,
+        animate: bool,
+    ) -> Diagnostics {
+        let dt = if animate {
+            let elapsed = now
+                .saturating_duration_since(self.last_animation)
+                .as_secs_f32()
+                .min(0.1);
+            self.last_animation = now;
+            elapsed
+        } else {
+            0.0
+        };
+        let snowfall =
+            weather.snow * s.accumulation * 0.85 - weather.temperature.max(0.0) * s.melt * 0.035;
+        let rate = if s.caps { snowfall } else { 0.0 };
+        let bottom_rate = if s.bottom_snow { snowfall } else { 0.0 };
+        let expiry = expiry.filter(|&deadline| s.real_weather && deadline > now);
+        let end = self.expiry.map_or(now, |deadline| now.min(deadline));
+        let weather_or_limit_changed = expiry != self.expiry || s.max_height != self.max_height;
+        if rate != self.rate || weather_or_limit_changed {
+            for cap in self.caps.values_mut() {
+                cap.snow
+                    .advance(end, now, self.rate, self.max_height, s.max_height);
+            }
+        }
+        if bottom_rate != self.bottom_rate || weather_or_limit_changed {
+            self.bottom_snow
+                .advance(end, now, self.bottom_rate, self.max_height, s.max_height);
+        }
+        self.rate = rate;
+        self.bottom_rate = bottom_rate;
+        self.expiry = expiry;
+        self.max_height = s.max_height;
+        let bottom_depth = self
+            .bottom_snow
+            .height_at(now, self.bottom_rate, self.max_height);
+        let bottom_depth = ((bottom_depth * 0.62).min(16.0) * 4.0).floor() / 4.0;
+        self.update_shake(now, s, paused || sleeping);
+        self.loose_snow
+            .retain(|snow| !paused && !sleeping && s.caps && snow.age(now) < SHED_TIME);
+        let shedding: Vec<_> = self
+            .loose_snow
+            .iter()
+            .map(|snow| snow.sample(now))
+            .collect();
+        let density = if s.falling {
+            (s.intensity / 100.0 * weather.snow).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let mut diag = Diagnostics {
+            tracked: self.caps.len(),
+            reason: "Нет видимых эффектов",
+            monitors: self
+                .displays
+                .iter()
+                .map(|d| {
+                    (
+                        d.name.clone(),
+                        format!(
+                            "{} × {}  ({}, {})",
+                            d.bounds.width(),
+                            d.bounds.height(),
+                            d.bounds.left,
+                            d.bounds.top
+                        ),
+                    )
+                })
+                .collect(),
+            ..Default::default()
+        };
+        let mut painted = false;
+        let mut fullscreen = false;
+        let mut caps_drawn = 0;
+        let selected_exists = self
+            .displays
+            .iter()
+            .any(|display| display.name == s.monitor);
+        let mut active = Vec::new();
+        if !paused && !sleeping {
+            for display in &self.displays {
+                if selected_exists && s.monitor != display.name {
+                    continue;
+                }
+                let bounds = display.bounds;
+                let covered = s.fullscreen_pause
+                    && self
+                        .windows
+                        .iter()
+                        .find(|window| window.visible && window.bounds.intersects(bounds))
+                        .is_some_and(|window| window.bounds.covers(bounds));
+                if covered {
+                    fullscreen = true;
+                    continue;
+                }
+                let count = if density > 0.0 {
+                    ((bounds.width() as f32 * bounds.height() as f32 / 7000.0) * density)
+                        .ceil()
+                        .max(1.0) as usize
+                } else {
+                    0
+                }
+                .min(s.particle_limit);
+                let falling_clumps: Vec<_> = shedding
+                    .iter()
+                    .filter(|snow| {
+                        snow.x >= (bounds.left - 7) as f32
+                            && snow.x < (bounds.right + 7) as f32
+                            && snow.y >= (bounds.top - 7) as f32
+                            && snow.y < (bounds.bottom + 7) as f32
+                    })
+                    .collect();
+                let has_clumps = !falling_clumps.is_empty();
+                let bottom = (s.bottom_snow && bottom_depth >= 1.25).then(|| SnowCap {
+                    width: bounds.width() + BOTTOM_INSET * 2,
+                    depth: bottom_depth,
+                    roughness: s.roughness / 100.0,
+                    seed: display.name.bytes().fold(0x7483_00a7u32, |seed, byte| {
+                        seed.rotate_left(5) ^ u32::from(byte)
+                    }),
+                    icicles: false,
+                });
+                let edges: Vec<_> = if s.caps {
+                    self.windows
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(index, window)| {
+                            if !window.shows_cap(&self.displays) {
+                                return None;
+                            }
+                            let cap = self.caps.get(&window.id)?;
+                            let r = window.bounds;
+                            let height =
+                                (cap.snow.height_at(now, self.rate, self.max_height) * 4.0).floor()
+                                    / 4.0;
+                            let shape = SnowCap {
+                                width: r.width(),
+                                depth: height,
+                                roughness: s.roughness / 100.0,
+                                seed: cap.seed,
+                                icicles: s.icicles,
+                            };
+                            let rows = shape.rows();
+                            (height >= 1.0
+                                && r.width() > 20
+                                && r.right > bounds.left
+                                && r.left < bounds.right
+                                && r.top + rows.end > bounds.top
+                                && r.top + rows.start < bounds.bottom)
+                                .then_some((index, r, shape))
+                        })
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                if count == 0 && edges.is_empty() && !has_clumps && bottom.is_none() {
+                    continue;
+                }
+                let name = &display.name;
+                let canvas = match self.surfaces.entry(name.clone()) {
+                    std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+                    std::collections::hash_map::Entry::Vacant(entry) => {
+                        let Some(canvas) = (unsafe { Canvas::new(self.instance, bounds) }) else {
+                            continue;
+                        };
+                        entry.insert(canvas)
+                    }
+                };
+                active.push(name.clone());
+                let cap_changed = canvas.edges != edges || canvas.bottom_shape != bottom;
+                if (count != 0 || has_clumps) && animate
+                    || cap_changed
+                    || canvas.count != count
+                    || canvas.shedding != has_clumps
+                    || self.changed
+                    || count != 0 && !canvas.shown
+                {
+                    let result = canvas.draw(
+                        count,
+                        dt,
+                        s,
+                        weather.wind,
+                        &edges,
+                        &self.windows,
+                        &mut self.caps,
+                        bottom,
+                        &falling_clumps,
+                        &mut self.random,
+                        cap_changed || self.changed,
+                    );
+                    painted |= result;
+                    canvas.edges = edges;
+                    canvas.bottom_shape = bottom;
+                }
+                if canvas.shown {
+                    diag.particles += count + falling_clumps.len();
+                    caps_drawn += canvas.cap_count;
+                    diag.bottom_edges += usize::from(bottom.is_some());
+                }
+            }
+        }
+        for (name, canvas) in &mut self.surfaces {
+            if !active.contains(name) {
+                canvas.hide();
+            }
+        }
+        self.changed = false;
+        if painted {
+            self.frames += 1;
+        }
+        let elapsed = now.saturating_duration_since(self.fps_since).as_secs_f32();
+        if elapsed >= 1.0 {
+            self.fps = (self.frames as f32 / elapsed).round() as u32;
+            self.frames = 0;
+            self.fps_since = now;
+        }
+        diag.caps = caps_drawn;
+        diag.reason = if sleeping {
+            "Экран заблокирован или выключен"
+        } else if paused {
+            "Эффекты на паузе"
+        } else if diag.particles > 0 || diag.caps > 0 || diag.bottom_edges > 0 {
+            "Эффекты включены"
+        } else if fullscreen {
+            "Полноэкранное приложение"
+        } else {
+            "Нет видимых эффектов"
+        };
+        diag.fps = if diag.particles > 0 || diag.caps > 0 || diag.bottom_edges > 0 {
+            self.fps
+        } else {
+            0
+        };
+        diag
+    }
+}
+
+struct Flake {
+    x: f32,
+    y: f32,
+    size: f32,
+    phase: f32,
+}
+
+type Edge = (usize, Bounds, SnowCap);
+const BOTTOM_INSET: i32 = 40;
+
+struct Canvas {
+    hwnd: HWND,
+    dc: HDC,
+    bitmap: HBITMAP,
+    original: HGDIOBJ,
+    pixels: *mut u32,
+    bounds: Bounds,
+    flakes: Vec<Flake>,
+    touched: Vec<usize>,
+    cap_pixels: Vec<(usize, u32)>,
+    bottom_shape: Option<SnowCap>,
+    bottom_bitmap: Option<CapBitmap>,
+    edges: Vec<Edge>,
+    shown: bool,
+    count: usize,
+    cap_count: usize,
+    shedding: bool,
+}
+
+impl Canvas {
+    unsafe fn new(instance: HINSTANCE, bounds: Bounds) -> Option<Self> {
+        let hwnd = CreateWindowExW(
+            WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE | WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+            SURFACE,
+            w!("Snowy New Year · Snow"),
+            WS_POPUP,
+            bounds.left,
+            bounds.top,
+            bounds.width(),
+            bounds.height(),
+            null_mut(),
+            null_mut(),
+            instance,
+            null(),
+        );
+        if hwnd.is_null() {
+            return None;
+        }
+        let dc = CreateCompatibleDC(null_mut());
+        let mut info: BITMAPINFO = zeroed();
+        info.bmiHeader.biSize = size_of::<BITMAPINFOHEADER>() as u32;
+        info.bmiHeader.biWidth = bounds.width();
+        info.bmiHeader.biHeight = -bounds.height();
+        info.bmiHeader.biPlanes = 1;
+        info.bmiHeader.biBitCount = 32;
+        let mut pixels = null_mut();
+        let bitmap = CreateDIBSection(dc, &info, DIB_RGB_COLORS, &mut pixels, null_mut(), 0);
+        if bitmap.is_null() || dc.is_null() || pixels.is_null() {
+            if !bitmap.is_null() {
+                DeleteObject(bitmap);
+            }
+            if !dc.is_null() {
+                DeleteDC(dc);
+            }
+            DestroyWindow(hwnd);
+            return None;
+        }
+        let pixels: *mut u32 = pixels.cast();
+        pixels.write_bytes(0, bounds.width() as usize * bounds.height() as usize);
+        let original = SelectObject(dc, bitmap);
+        Some(Self {
+            hwnd,
+            dc,
+            bitmap,
+            original,
+            pixels,
+            bounds,
+            flakes: Vec::new(),
+            touched: Vec::new(),
+            cap_pixels: Vec::new(),
+            bottom_shape: None,
+            bottom_bitmap: None,
+            edges: Vec::new(),
+            shown: false,
+            count: 0,
+            cap_count: 0,
+            shedding: false,
+        })
+    }
+
+    fn hide(&mut self) {
+        if self.shown {
+            unsafe {
+                ShowWindow(self.hwnd, SW_HIDE);
+            }
+            self.shown = false;
+        }
+        self.edges.clear();
+        self.flakes.clear();
+        self.cap_pixels.clear();
+        self.bottom_shape = None;
+        self.shedding = false;
+    }
+
+    fn pixel(&mut self, x: i32, y: i32, color: u32) {
+        if x < 0 || y < 0 || x >= self.bounds.width() || y >= self.bounds.height() {
+            return;
+        }
+        let i = (y * self.bounds.width() + x) as usize;
+        unsafe {
+            let ptr = self.pixels.add(i);
+            if *ptr == 0 {
+                self.touched.push(i);
+            }
+            if color >> 24 >= *ptr >> 24 {
+                *ptr = color;
+            }
+        }
+    }
+
+    fn draw(
+        &mut self,
+        count: usize,
+        dt: f32,
+        s: &Settings,
+        wind: f32,
+        edges: &[Edge],
+        windows: &[Window],
+        caps: &mut HashMap<usize, Cap>,
+        bottom: Option<SnowCap>,
+        falling_clumps: &[&SnowParticle],
+        seed: &mut u32,
+        rebuild_caps: bool,
+    ) -> bool {
+        for index in self.touched.drain(..) {
+            unsafe {
+                *self.pixels.add(index) = 0;
+            }
+        }
+        let bounds = self.bounds;
+        let width = bounds.width() as f32;
+        let height = bounds.height() as f32;
+        if rebuild_caps {
+            self.draw_caps(edges, windows, caps);
+            if let Some(shape) = bottom {
+                self.draw_bottom(shape);
+            }
+            self.cap_pixels.clear();
+            self.cap_pixels.extend(
+                self.touched
+                    .iter()
+                    .map(|&index| (index, unsafe { *self.pixels.add(index) })),
+            );
+        } else {
+            for &(index, pixel) in &self.cap_pixels {
+                unsafe {
+                    *self.pixels.add(index) = pixel;
+                }
+                self.touched.push(index);
+            }
+        }
+        self.count = count;
+        self.flakes.truncate(count);
+        while self.flakes.len() < count {
+            self.flakes.push(Flake {
+                x: random(seed) * width,
+                y: random(seed) * height,
+                size: 0.45 + random(seed),
+                phase: random(seed) * std::f32::consts::TAU,
+            });
+        }
+        for index in 0..self.flakes.len() {
+            let flake = &mut self.flakes[index];
+            flake.phase += dt * (0.9 + flake.size);
+            flake.x = (flake.x + dt * (wind * 110.0 + flake.phase.sin() * 15.0)).rem_euclid(width);
+            flake.y += dt * s.speed * (0.45 + flake.size);
+            if flake.y > height + 8.0 {
+                flake.y = -8.0;
+                flake.x = random(seed) * width;
+            }
+            let (x, y) = (flake.x, flake.y);
+            let radius = (s.size * flake.size * 0.63).max(0.7);
+            self.draw_particle(x, y, radius, s.opacity * 2.55);
+        }
+        self.shedding = !falling_clumps.is_empty();
+        for snow in falling_clumps {
+            self.draw_particle(
+                snow.x - bounds.left as f32,
+                snow.y - bounds.top as f32,
+                snow.radius,
+                snow.opacity,
+            );
+        }
+        if self.touched.is_empty() && count == 0 {
+            self.hide();
+            return false;
+        }
+        let destination = POINT {
+            x: bounds.left,
+            y: bounds.top,
+        };
+        let origin = POINT { x: 0, y: 0 };
+        let size = SIZE {
+            cx: bounds.width(),
+            cy: bounds.height(),
+        };
+        let blend = BLENDFUNCTION {
+            BlendOp: AC_SRC_OVER as u8,
+            BlendFlags: 0,
+            SourceConstantAlpha: 255,
+            AlphaFormat: AC_SRC_ALPHA as u8,
+        };
+        unsafe {
+            let result = UpdateLayeredWindow(
+                self.hwnd,
+                null_mut(),
+                &destination,
+                &size,
+                self.dc,
+                &origin,
+                0,
+                &blend,
+                ULW_ALPHA,
+            ) != 0;
+            if result && !self.shown {
+                ShowWindow(self.hwnd, SW_SHOWNOACTIVATE);
+                self.shown = true;
+            }
+            result
+        }
+    }
+
+    fn draw_particle(&mut self, x: f32, y: f32, radius: f32, opacity: f32) {
+        let extent = radius.ceil() as i32;
+        for dy in -extent..=extent {
+            for dx in -extent..=extent {
+                let coverage = (radius + 0.4 - (dx as f32).hypot(dy as f32)).clamp(0.0, 1.0);
+                let alpha = (coverage * opacity).round() as u32;
+                if alpha > 0 {
+                    let color = (alpha << 24)
+                        | ((alpha * 230 / 255) << 16)
+                        | ((alpha * 246 / 255) << 8)
+                        | alpha;
+                    self.pixel(x as i32 + dx, y as i32 + dy, color);
+                }
+            }
+        }
+    }
+
+    fn draw_caps(&mut self, edges: &[Edge], windows: &[Window], caps: &mut HashMap<usize, Cap>) {
+        let bounds = self.bounds;
+        self.cap_count = 0;
+        for &(index, window, shape) in edges.iter().rev() {
+            let Some(cap) = caps.get_mut(&windows[index].id) else {
+                continue;
+            };
+            let rows = shape.rows();
+            let area = Bounds {
+                top: window.top + rows.start,
+                bottom: window.top + rows.end,
+                ..window
+            };
+            let obstacles: Vec<_> = windows[..index]
+                .iter()
+                .filter(|other| other.visible && other.bounds.intersects(area))
+                .map(|other| other.bounds)
+                .collect();
+            let mut drawn = false;
+            for &(x, y, pixel) in CapBitmap::pixels(&mut cap.bitmap, shape) {
+                let x = x + window.left;
+                let y = y + window.top;
+                if bounds.contains(x, y) && !obstacles.iter().any(|other| other.contains(x, y)) {
+                    self.pixel(x - bounds.left, y - bounds.top, pixel);
+                    drawn = true;
+                }
+            }
+            self.cap_count += usize::from(drawn);
+        }
+    }
+
+    fn draw_bottom(&mut self, shape: SnowCap) {
+        // The profile's baseline sits just outside the last visible screen row.
+        let height = self.bounds.height();
+        let mut bitmap = self.bottom_bitmap.take();
+        for &(x, y, pixel) in CapBitmap::pixels(&mut bitmap, shape) {
+            if y < 0 {
+                self.pixel(x - BOTTOM_INSET, height + y, pixel);
+            }
+        }
+        self.bottom_bitmap = bitmap;
+    }
+}
+
+impl Drop for Canvas {
+    fn drop(&mut self) {
+        unsafe {
+            SelectObject(self.dc, self.original);
+            DeleteObject(self.bitmap);
+            DeleteDC(self.dc);
+            DestroyWindow(self.hwnd);
+        }
+    }
+}
