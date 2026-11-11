@@ -1110,6 +1110,8 @@ fn scene(
             roughness: settings.roughness / 100.0,
             seed: 0x75c2_ac73,
             icicles: settings.icicles,
+            ice_factor: if settings.icicles { 1.0 } else { 0.0 },
+            wind_bias: 0.0,
         };
         let rows = shape.rows();
         let (cached_shape, texture) = preview.get_or_insert_with(|| {
