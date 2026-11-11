@@ -883,23 +883,20 @@ impl App {
     }
 
     fn navigation(&mut self, ui: &mut Ui, compact: bool, accent: Color32, diag: &Diagnostics) {
-        ui.add_space(6.0);
-        ui.horizontal(|ui| {
-            ui.add(
-                self.icons
-                    .image(Icon::Snowflake, 19.0, accent)
-                    .alt_text("Snowy New Year"),
+        ui.add_space(5.0);
+        if !compact {
+            ui.label(
+                RichText::new("РАЗДЕЛЫ")
+                    .size(10.0)
+                    .strong()
+                    .color(Color32::from_rgb(128, 157, 181)),
             );
-            if !compact {
-                ui.label(
-                    RichText::new("Snowy New Year")
-                        .color(accent)
-                        .size(17.0)
-                        .strong(),
-                );
-            }
-        });
-        ui.add_space(12.0);
+        } else {
+            ui.vertical_centered(|ui| {
+                ui.add(self.icons.image(Icon::Snowflake, 22.0, accent));
+            });
+        }
+        ui.add_space(14.0);
         ui.spacing_mut().item_spacing.y = 5.0;
         for (index, &(name, icon)) in NAV.iter().enumerate() {
             let selected = index == self.page;
@@ -912,8 +909,14 @@ impl App {
             }
             .wrap_mode(egui::TextWrapMode::Truncate)
             .selected(selected)
-            .frame_when_inactive(selected)
-            .min_size(egui::vec2(ui.available_width(), 36.0));
+            .fill(if selected {
+                Color32::from_rgb(37, 70, 94)
+            } else {
+                Color32::TRANSPARENT
+            })
+            .stroke(egui::Stroke::NONE)
+            .frame_when_inactive(false)
+            .min_size(egui::vec2(ui.available_width(), 39.0));
             if ui.add(button).on_hover_text(name).clicked() {
                 self.page = index;
             }
@@ -928,9 +931,10 @@ impl App {
                 };
                 let color = if error || self.paused { WARN } else { GREEN };
                 egui::Frame::new()
-                    .fill(Color32::from_white_alpha(14))
-                    .corner_radius(13)
-                    .inner_margin(egui::Margin::symmetric(9, 6))
+                    .fill(Color32::from_rgb(22, 40, 59))
+                    .stroke(egui::Stroke::new(1.0, Color32::from_rgb(45, 68, 88)))
+                    .corner_radius(10)
+                    .inner_margin(egui::Margin::symmetric(9, 8))
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
                             let (dot, _) = ui
