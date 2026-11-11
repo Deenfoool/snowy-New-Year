@@ -447,6 +447,8 @@ impl App {
                     .text("Таяние"),
             );
             glass::toggle(ui, &mut self.settings.icicles, "Сосульки");
+            glass::toggle(ui, &mut self.settings.icicle_drips, "Капли с тающих сосулек");
+            glass::toggle(ui, &mut self.settings.wind_drifts, "Ветер формирует сугробы");
             glass::toggle(
                 ui,
                 &mut self.settings.shake_to_clear,
@@ -461,6 +463,17 @@ impl App {
                 ui,
                 &mut self.settings.snowballs,
                 "Лепить снежные шары мышью",
+            );
+            glass::toggle(
+                ui,
+                &mut self.settings.snowman_decorations,
+                "Украшения готовых снеговиков",
+            );
+            ui.label(
+                RichText::new(
+                    "Shift + ПКМ по голове готового снеговика меняет его наряд: классический, праздничный, полярный."
+                )
+                .color(MUTED),
             );
             ui.label(
                 RichText::new(
