@@ -35,7 +35,9 @@ fn main() {
             viewport: eframe::egui::ViewportBuilder::default()
                 .with_inner_size([960.0, 640.0])
                 .with_min_inner_size([800.0, 560.0])
-                .with_transparent(true)
+                .with_transparent(false)
+                .with_decorations(false)
+                .with_resizable(true)
                 .with_icon(icons::window_icon()),
             ..Default::default()
         };
