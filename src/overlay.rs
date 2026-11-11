@@ -55,6 +55,8 @@ pub struct Diagnostics {
     pub tracked: usize,
     pub snowballs: usize,
     pub snowmen: usize,
+    pub iced_windows: usize,
+    pub drips: usize,
     pub moving_balls: bool,
     pub caps: usize,
     pub bottom_edges: usize,
@@ -1371,8 +1373,13 @@ impl Engine {
 
     /// Ice changes continuously with elapsed time, but the rasterizer sees
     /// only 5% steps, so a large collection of open windows stays cheap.
-    fn advance_ice(&mut self, now: Instant, s: &Settings, temp: f32) {
+    fn advance_ice(&mut self, now: Instant, s: &Settings, temp: f32, weather_known: bool) {
         for cap in self.caps.values_mut() {
+            if !weather_known {
+                // Unknown temperature is not an invented zero-degree reading.
+                cap.ice_updated = now;
+                continue;
+            }
             let elapsed = now.saturating_duration_since(cap.ice_updated)
                 .as_secs_f32().min(6.0 * 3600.0);
             cap.ice_updated = now;
@@ -1383,7 +1390,7 @@ impl Engine {
                 temp,
                 depth,
                 elapsed,
-                s.icicles,
+                s.icicles && s.caps,
             );
             if old_step != (cap.ice_factor * 20.0).round() as i32 {
                 self.changed = true;
@@ -1398,13 +1405,14 @@ impl Engine {
         weather: weather::Conditions,
         paused: bool,
         sleeping: bool,
+        weather_known: bool,
     ) {
         self.drips.retain(|drop| drop.age(now) < 2.5);
         if !s.icicles || !s.icicle_drips {
             self.drips.clear();
             return;
         }
-        if paused || sleeping || weather.temperature <= 0.0
+        if paused || sleeping || !weather_known || weather.temperature <= 0.0
             || self.drips.len() >= 48
             || now.saturating_duration_since(self.last_drip) < Duration::from_millis(650)
         {
@@ -1606,8 +1614,9 @@ impl Engine {
         self.bottom_rate = bottom_rate;
         self.expiry = expiry;
         self.max_height = s.max_height;
-        self.advance_ice(now, s, weather.temperature);
-        self.update_drips(now, s, weather, paused, sleeping);
+        let weather_known = !s.real_weather || expiry.is_some();
+        self.advance_ice(now, s, weather.temperature, weather_known);
+        self.update_drips(now, s, weather, paused, sleeping, weather_known);
         let water_drops: Vec<_> = self.drips.iter().map(|drop| drop.sample(now)).collect();
         let bottom_depth = self
             .bottom_snow
@@ -1630,6 +1639,8 @@ impl Engine {
             tracked: self.caps.len(),
             snowballs: self.balls.len(),
             snowmen: self.balls.iter().filter(|ball| snowball::is_head_of_snowman(&self.balls, ball.id)).count(),
+            iced_windows: self.caps.values().filter(|cap| cap.ice_factor > 0.05).count(),
+            drips: self.drips.len(),
             reason: "Нет видимых эффектов",
             monitors: self
                 .displays
