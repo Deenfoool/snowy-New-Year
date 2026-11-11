@@ -2,7 +2,7 @@ use crate::{
     icons,
     settings::Settings,
     shake::Shake,
-    snowcap::SnowCap,
+    snowcap::{advance_ice_fraction, SnowCap},
     snowball::{self, Snowball},
     weather::{self, Observation},
 };
@@ -1378,15 +1378,13 @@ impl Engine {
             cap.ice_updated = now;
             let old_step = (cap.ice_factor * 20.0).round() as i32;
             let depth = cap.snow.height_at(now, self.rate, self.max_height);
-            if !s.icicles {
-                cap.ice_factor = 0.0;
-            } else if temp <= 0.0 && depth >= 5.0 {
-                let growth = (1.0 + temp.abs() * 0.07).min(2.5);
-                cap.ice_factor = (cap.ice_factor + elapsed * growth / 180.0).min(1.0);
-            } else {
-                let melting = (1.0 + temp.max(0.0) * 0.25).min(4.0);
-                cap.ice_factor = (cap.ice_factor - elapsed * melting / 100.0).max(0.0);
-            }
+            cap.ice_factor = advance_ice_fraction(
+                cap.ice_factor,
+                temp,
+                depth,
+                elapsed,
+                s.icicles,
+            );
             if old_step != (cap.ice_factor * 20.0).round() as i32 {
                 self.changed = true;
             }
@@ -1451,6 +1449,12 @@ impl Engine {
             for _ in 0..6 {
                 let cell = (random(&mut self.random) * cells as f32) as u32;
                 if let Some((x, tip)) = shape.icicle_tip_in_cell(cell) {
+                    let segment = x as usize / SNOW_SEGMENT;
+                    if shape.sample_height(x)
+                        - cap.removed.get(segment).copied().unwrap_or(0.0) < 5.0
+                    {
+                        continue;
+                    }
                     self.drips.push(WaterDrip {
                         start: now,
                         x: window.bounds.left as f32 + x,
