@@ -1,6 +1,6 @@
 # Snowy New Year — UI/UX specification
 
-**Status:** approved design direction, 2026-11-11. **Target:** Windows 10/11, Rust. This is a design handoff, **not** a claim that the native UI or snow engine is implemented.
+**Status:** approved design direction, 2026-11-11; the Rust/egui window now follows this design. **Target:** Windows 10/11. Native changes have **not yet been verified by a Windows build or screenshot**.
 
 ## Product direction
 
@@ -136,3 +136,12 @@ Choose an actual Rust-native UI strategy before implementing the production wind
 - Closing the native settings UI hides it to tray without leaving a constantly rendering UI process.
 - No secrets in source/repo or network access in visual preview.
 - No performance numbers presented as measured unless collected.
+
+
+## Native implementation notes (2026-11-11)
+
+- `src/ui.rs` renders a 54-point borderless titlebar (drag, double-click maximize/restore, minimize, maximize, close), ~190-point left sidebar with selection highlight, six screens, home preview and weather card.
+- `src/glass.rs` supplies rounded, softly graduated dark panels, icy highlights, a consistent palette and custom switches. It does **not require** Windows Composition for the UI to remain readable.
+- `src/main.rs` creates an **opaque** window. The transparent snow overlay remains completely separate in `src/overlay.rs`.
+- `src/glass_backdrop.rs` is retained in the repository for future experimental native blur, but the settings window no longer initializes it by default. This avoids transparent/empty screens when a host-backdrop brush fails.
+- A custom borderless window must be manually verified for dragging, all resize edges, Windows 10/11 DPI and maximize/restore. No runtime performance claims are made without benchmarking.
