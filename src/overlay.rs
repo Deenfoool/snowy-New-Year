@@ -870,6 +870,7 @@ struct Cap {
     snow: SnowDepth,
     /// Amount of snow already rolled away in each 10px section.
     removed: Vec<f32>,
+    removed_updated: Instant,
     bitmap: Option<CapBitmap>,
 }
 
@@ -1063,6 +1064,7 @@ impl Engine {
                     updated: now,
                 },
                 removed: Vec::new(),
+                removed_updated: now,
                 bitmap: None,
             });
             let wanted = (window.bounds.width().max(0) as usize).div_ceil(SNOW_SEGMENT);
@@ -1243,6 +1245,7 @@ impl Engine {
             collected += taken * SNOW_SEGMENT as f32;
         }
         if collected > 0.0 {
+            cap.removed_updated = now;
             cap.bitmap = None;
             if let Some(ball) = self.balls.iter_mut().find(|ball| ball.id == ball_id) {
                 ball.collect(collected);
@@ -1275,14 +1278,14 @@ impl Engine {
                 continue;
             };
             if settings.fullscreen_pause && self.windows.iter()
-                .find(|w| w.visible && w.bounds.intersects(display.bounds))
-                .is_some_and(|w| w.bounds.covers(display.bounds))
+                .any(|w| w.visible && w.bounds.covers(display.bounds))
             {
                 continue;
             }
             let vy = ball.vy + snowball::GRAVITY * dt;
             let mut y = ball.y + vy * dt;
-            let floor = display.bounds.bottom as f32 - ball.radius() - 1.0;
+            // Stand on the usable desktop, above the taskbar.
+            let floor = display.work_area.bottom as f32 - ball.radius() - 1.0;
             if y >= floor {
                 y = floor;
             }
@@ -1402,6 +1405,33 @@ impl Engine {
             self.bottom_snow
                 .advance(end, now, self.bottom_rate, self.max_height, s.max_height);
         }
+        // Snow accumulation refills only the grooves rolled out of a cap.
+        // Unlike a static subtraction, this also refills when the overall
+        // snow depth is already at its height limit.
+        if rate > 0.0 {
+            for cap in self.caps.values_mut() {
+                let elapsed = now.saturating_duration_since(cap.removed_updated).as_secs_f32();
+                if elapsed >= 0.35 {
+                    let fill = rate * elapsed;
+                    let mut changed = false;
+                    for removed in &mut cap.removed {
+                        if *removed > 0.0 {
+                            *removed = (*removed - fill).max(0.0);
+                            changed = true;
+                        }
+                    }
+                    if changed {
+                        cap.bitmap = None;
+                        self.changed = true;
+                    }
+                    cap.removed_updated = now;
+                }
+            }
+        } else {
+            for cap in self.caps.values_mut() {
+                cap.removed_updated = now;
+            }
+        }
         self.rate = rate;
         self.bottom_rate = bottom_rate;
         self.expiry = expiry;
@@ -1463,11 +1493,8 @@ impl Engine {
                 }
                 let bounds = display.bounds;
                 let covered = s.fullscreen_pause
-                    && self
-                        .windows
-                        .iter()
-                        .find(|window| window.visible && window.bounds.intersects(bounds))
-                        .is_some_and(|window| window.bounds.covers(bounds));
+                    && self.windows.iter()
+                        .any(|window| window.visible && window.bounds.covers(bounds));
                 if covered {
                     fullscreen = true;
                     continue;
