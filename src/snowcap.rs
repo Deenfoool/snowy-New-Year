@@ -21,18 +21,39 @@ impl SnowCap {
         &self,
         columns: Range<i32>,
         rows: Range<i32>,
+        put: impl FnMut(i32, i32, u32),
+    ) {
+        self.rasterize_removed(columns, rows, &[], 10, put);
+    }
+
+    pub fn sample_height(&self, x: f32) -> f32 {
+        self.crest(x)
+    }
+
+    /// A window can lose snow locally to rolling snowballs. The removed
+    /// heights are stored at fixed-width segments of the upper edge.
+    pub fn rasterize_removed(
+        &self,
+        columns: Range<i32>,
+        rows: Range<i32>,
+        removed: &[f32],
+        segment_width: usize,
         mut put: impl FnMut(i32, i32, u32),
     ) {
         let span = self.width as f32;
+        let local_height = |x: f32| {
+            let segment = (x.max(0.0) as usize / segment_width.max(1)).min(removed.len().saturating_sub(1));
+            (self.crest(x) - removed.get(segment).copied().unwrap_or(0.0)).max(0.0)
+        };
         for x in columns.start.max(0)..columns.end.min(self.width) {
             let center = x as f32 + 0.5;
             let t = center / span;
-            let crest = self.crest(center);
+            let crest = local_height(center);
             if crest < 0.16 {
                 continue;
             }
 
-            let slope = (self.crest(center + 1.5) - self.crest(center - 1.5)) / 3.0;
+            let slope = (local_height(center + 1.5) - local_height(center - 1.5)) / 3.0;
             let drift = noise(self.seed ^ 0x6fd5_8e2b, t * (3.0 + span / 90.0));
             let scallop = noise(self.seed ^ 0x892a_37df, center / 19.0);
             let lip = crest * (0.13 + 0.22 * drift + 0.08 * scallop);
@@ -147,6 +168,33 @@ fn argb(rgb: [f32; 3], alpha: f32) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::SnowCap;
+
+    #[test]
+    fn rolling_removes_snow_only_from_touched_segments() {
+        let cap = SnowCap {
+            width: 300,
+            depth: 20.0,
+            roughness: 0.35,
+            seed: 1024,
+            icicles: false,
+        };
+        let mut untouched = 0usize;
+        let mut original = 0usize;
+        cap.rasterize(0..cap.width, cap.rows(), |x, _, pixel| {
+            if (120..150).contains(&x) && pixel >> 24 > 128 { original += 1; }
+            if (200..240).contains(&x) && pixel >> 24 > 128 { untouched += 1; }
+        });
+        let mut carved = vec![0.0; 30];
+        for segment in &mut carved[12..15] { *segment = 15.0; }
+        let mut removed_region = 0usize;
+        let mut unmodified_region = 0usize;
+        cap.rasterize_removed(0..cap.width, cap.rows(), &carved, 10, |x, _, pixel| {
+            if (120..150).contains(&x) && pixel >> 24 > 128 { removed_region += 1; }
+            if (200..240).contains(&x) && pixel >> 24 > 128 { unmodified_region += 1; }
+        });
+        assert!(removed_region < original);
+        assert_eq!(unmodified_region, untouched);
+    }
 
     #[test]
     fn clipping_preserves_the_profile_and_premultiplied_channels() {
