@@ -968,6 +968,8 @@ struct Engine {
     next_ball: u64,
     gesture: Option<Gesture>,
     last_ball_physics: Instant,
+    drips: Vec<WaterDrip>,
+    last_drip: Instant,
     displays: Vec<Display>,
     surfaces: HashMap<String, Canvas>,
     random: u32,
@@ -1026,6 +1028,29 @@ struct SnowParticle {
     opacity: f32,
 }
 
+struct WaterDrip {
+    start: Instant,
+    x: f32,
+    y: f32,
+    wind: f32,
+}
+
+impl WaterDrip {
+    fn age(&self, now: Instant) -> f32 {
+        now.saturating_duration_since(self.start).as_secs_f32()
+    }
+
+    fn sample(&self, now: Instant) -> SnowParticle {
+        let t = self.age(now);
+        SnowParticle {
+            x: self.x + self.wind * 12.0 * t,
+            y: self.y + 45.0 * t + 170.0 * t * t,
+            radius: 1.5,
+            opacity: (225.0 * (1.0 - t / 2.5)).clamp(0.0, 225.0),
+        }
+    }
+}
+
 fn random(seed: &mut u32) -> f32 {
     *seed ^= *seed << 13;
     *seed ^= *seed >> 17;
@@ -1044,6 +1069,8 @@ impl Engine {
             next_ball: 1,
             gesture: None,
             last_ball_physics: now,
+            drips: Vec::new(),
+            last_drip: now,
             displays: Vec::new(),
             surfaces: HashMap::new(),
             random: 0xc41f_543e,
@@ -1342,6 +1369,101 @@ impl Engine {
         }
     }
 
+    /// Ice changes continuously with elapsed time, but the rasterizer sees
+    /// only 5% steps, so a large collection of open windows stays cheap.
+    fn advance_ice(&mut self, now: Instant, s: &Settings, temp: f32) {
+        for cap in self.caps.values_mut() {
+            let elapsed = now.saturating_duration_since(cap.ice_updated)
+                .as_secs_f32().min(6.0 * 3600.0);
+            cap.ice_updated = now;
+            let old_step = (cap.ice_factor * 20.0).round() as i32;
+            let depth = cap.snow.height_at(now, self.rate, self.max_height);
+            if !s.icicles {
+                cap.ice_factor = 0.0;
+            } else if temp <= 0.0 && depth >= 5.0 {
+                let growth = (1.0 + temp.abs() * 0.07).min(2.5);
+                cap.ice_factor = (cap.ice_factor + elapsed * growth / 180.0).min(1.0);
+            } else {
+                let melting = (1.0 + temp.max(0.0) * 0.25).min(4.0);
+                cap.ice_factor = (cap.ice_factor - elapsed * melting / 100.0).max(0.0);
+            }
+            if old_step != (cap.ice_factor * 20.0).round() as i32 {
+                self.changed = true;
+            }
+        }
+    }
+
+    fn update_drips(
+        &mut self,
+        now: Instant,
+        s: &Settings,
+        weather: weather::Conditions,
+        paused: bool,
+        sleeping: bool,
+    ) {
+        self.drips.retain(|drop| drop.age(now) < 2.5);
+        if !s.icicles || !s.icicle_drips {
+            self.drips.clear();
+            return;
+        }
+        if paused || sleeping || weather.temperature <= 0.0
+            || self.drips.len() >= 48
+            || now.saturating_duration_since(self.last_drip) < Duration::from_millis(650)
+        {
+            return;
+        }
+        self.last_drip = now;
+        // Try a handful of existing, visible window edges. No physical
+        // particles are created for fullscreen/hidden desktops.
+        let candidates: Vec<_> = self.windows.iter().copied()
+            .filter(|window| window.shows_cap(&self.displays))
+            .collect();
+        if candidates.is_empty() {
+            return;
+        }
+        let start = ((random(&mut self.random) * candidates.len() as f32) as usize)
+            .min(candidates.len() - 1);
+        for index in 0..candidates.len().min(8) {
+            let window = candidates[(start + index) % candidates.len()];
+            let Some(display) = self.displays.iter().find(|display| {
+                display.bounds.intersects(window.bounds)
+                    && (s.monitor.is_empty() || s.monitor == display.name)
+            }) else { continue };
+            if s.fullscreen_pause
+                && self.windows.iter().any(|w| w.visible && w.bounds.covers(display.bounds))
+            {
+                continue;
+            }
+            let Some(cap) = self.caps.get(&window.id) else { continue };
+            if cap.ice_factor < 0.10 { continue; }
+            let depth = cap.snow.height_at(now, self.rate, self.max_height);
+            if depth < 5.0 || window.bounds.width() <= 0 { continue; }
+            let shape = SnowCap {
+                width: window.bounds.width(),
+                depth,
+                roughness: s.roughness / 100.0,
+                seed: cap.seed,
+                icicles: true,
+                ice_factor: (cap.ice_factor * 20.0).round() / 20.0,
+                wind_bias: 0.0,
+            };
+            let cells = (window.bounds.width().max(1) as usize).div_ceil(52);
+            for _ in 0..6 {
+                let cell = (random(&mut self.random) * cells as f32) as u32;
+                if let Some((x, tip)) = shape.icicle_tip_in_cell(cell) {
+                    self.drips.push(WaterDrip {
+                        start: now,
+                        x: window.bounds.left as f32 + x,
+                        y: window.bounds.top as f32 + tip,
+                        wind: weather.wind,
+                    });
+                    self.changed = true;
+                    return;
+                }
+            }
+        }
+    }
+
     fn update_shake(&mut self, now: Instant, settings: &Settings, suspended: bool) {
         let Some(session) = EVENTS.with_borrow(|events| events.dragging) else {
             self.drag = None;
@@ -1480,6 +1602,9 @@ impl Engine {
         self.bottom_rate = bottom_rate;
         self.expiry = expiry;
         self.max_height = s.max_height;
+        self.advance_ice(now, s, weather.temperature);
+        self.update_drips(now, s, weather, paused, sleeping);
+        let water_drops: Vec<_> = self.drips.iter().map(|drop| drop.sample(now)).collect();
         let bottom_depth = self
             .bottom_snow
             .height_at(now, self.bottom_rate, self.max_height);
