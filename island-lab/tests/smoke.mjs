@@ -213,6 +213,8 @@ test('native desktop layering has a guarded 20-second rollback, not WorkerW inje
   assert.match(rust,/TRIAL_SECONDS: u64 = 20/);
   assert.match(rust,/set_always_on_bottom\(true\)/);
   assert.match(rust,/set_always_on_bottom\(false\)/);
+  assert.match(rust,/run_on_main_thread/);
+  assert.match(rust,/Mutex<Inner>/);
   assert.match(rust,/genuine_desktop_host: false/);
   assert.doesNotMatch(rust,/SetParent|FindWindowW|SendMessageW/);
 });
