@@ -392,7 +392,8 @@ function drawWave(now=0){
     level=music.fft.reduce((a,b)=>a+b,0)/(music.fft.length*255)
   }
   const power=powered?Math.min(1,level*(system?4.0:2.7))*(options.wavePower/100):0;
-  const base=powered?3:0;
+  // When the output is silent, the bottom silhouette becomes truly flat.
+  const base=powered&&level>0.015?3:0;
   const points=[];
   for(let x=0;x<=waveW;x+=3){
     const t=x/waveW,taper=Math.pow(Math.sin(Math.PI*t),.7);
@@ -413,7 +414,7 @@ function drawWave(now=0){
   wc.closePath();wc.fillStyle=grad;wc.fill();
   if(power>0){wc.strokeStyle='rgba(192,235,252,.56)';wc.lineWidth=.7;wc.stroke()}
 }
-function frame(now){waveRaf=0;if(!expanded||!music.playing||options.reducedMotion||!options.waveEnabled){drawWave();return}if(now-lastWave>32){drawWave(now);if(music.mode==='demo'&&currentTime()>=duration()){music.offset=0;music.start=performance.now()/1000;music.nextBeat=music.ctx.currentTime;music.beat=0}updatePlayer();lastWave=now}startWaveLoop()}
+function frame(now){waveRaf=0;if(!expanded||!music.playing||options.reducedMotion||!options.waveEnabled||(music.mode==='system'&&!nativeSystemAudioActive())){drawWave();return}if(now-lastWave>32){drawWave(now);if(music.mode==='demo'&&currentTime()>=duration()){music.offset=0;music.start=performance.now()/1000;music.nextBeat=music.ctx.currentTime;music.beat=0}updatePlayer();lastWave=now}startWaveLoop()}
 function startWaveLoop(){if(waveRaf||!expanded||!music.playing
     ||(music.mode==='system'&&!nativeSystemAudioActive())
     ||options.reducedMotion||!options.waveEnabled||document.hidden)return;waveRaf=requestAnimationFrame(frame)}
