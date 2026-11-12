@@ -1,6 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::sync::atomic::{AtomicBool, Ordering};
+mod media;
+
 use tauri::{LogicalSize, PhysicalPosition, State, WebviewWindow};
 
 #[derive(Default)]
@@ -106,7 +108,9 @@ fn main() {
         .manage(WindowPositionState::default())
         .invoke_handler(tauri::generate_handler![
             set_island_expanded,
-            quit_island_lab
+            quit_island_lab,
+            media::system_media_snapshot,
+            media::system_media_action
         ])
         .run(tauri::generate_context!())
         .expect("Island Lab native host could not start");
