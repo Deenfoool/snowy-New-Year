@@ -716,6 +716,7 @@ function diagnosticsText(){
     ['Захват экрана',navigator.mediaDevices?.getDisplayMedia?'Поддерживается браузером':'Недоступно'],
     ['Буфер обмена',navigator.clipboard?.read?'Доступен при разрешении':'Ограничен'],
     ['Окно',expanded?'Развёрнуто':'Капсула'],
+    ['Размещение',window.IslandDesktopMode?.mode||'normal'],
     ['Волна',options.waveEnabled?'Включена':'Отключена'],
     ['Музыка',music.playing?'Воспроизводится':'Остановлена'],
     ['Ошибки JavaScript',String(runtimeErrorCount)]
