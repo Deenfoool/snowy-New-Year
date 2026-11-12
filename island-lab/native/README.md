@@ -45,7 +45,7 @@ npm run build
 - The bottom wave canvas is outside the inner card and should preserve the down-facing silhouette.
 - **Experimental native player:** optional Windows Media Sessions adapter. In the expanded main tab, enable **«Плеер Windows»**, then play a track in Spotify, browser or another app exposing System Media Transport Controls. The adapter reads title/artist/position and handles play/pause/next/previous/seek commands. This is real Windows metadata integration, not a simulated music player. Actual Windows functionality still requires testing.
 - The native player polls every 2 seconds only while the user has opted in; the WinRT session manager is cached and polling stops after disabling the switch. The browser does not poll Windows APIs.
-- **No system audio visualization yet**: when external music is selected the wave remains flat until WASAPI integration is implemented. LRC can still be searched and timed against the reported system playback position.
+- **System audio visualization is available as an experimental, separate opt-in feature**: after connecting «Плеер Windows», enable «Волны из звука Windows». Without this explicit toggle the wave stays flat for external music. LRC remains timed against the reported playback position.
 
 ## What this is *not* (yet)
 
