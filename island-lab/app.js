@@ -252,7 +252,7 @@ waveSwitch.disabled=true;
 async function stopSystemWave(){
   waveSwitch.checked=false;
   captureStatus.textContent='Захват выключен';
-  if(audioCapture?.active)await audioCapture.stop();
+  if(audioCapture?.active||audioCapture?.starting)await audioCapture.stop();
   drawWave();
 }
 function nativeSystemAudioActive(){
@@ -275,7 +275,7 @@ waveSwitch.addEventListener('change',async()=>{
     captureStatus.textContent='WASAPI: захват общего звука активен';
     startWaveLoop();
   }else{
-    if(audioCapture.active)await audioCapture.stop();
+    if(audioCapture?.active||audioCapture?.starting)await audioCapture.stop();
     waveSwitch.checked=false;
     captureStatus.textContent='WASAPI недоступен на этом устройстве';
   }
