@@ -455,3 +455,74 @@ test('compact controls remain keyboard-visible and touch-friendly',()=>{
   assert.match(css,/@media\(pointer:coarse\)/);
   assert.match(css,/@media\(max-width:360px\)/);
 });
+
+test('wave canvas bitmap follows last width while reallocating at most around 30Hz',()=>{
+  const start=app.indexOf("if(typeof ResizeObserver!=='undefined'){");
+  const end=app.indexOf('/* Music engine:',start);
+  assert.ok(start>=0&&end>start);
+  const observers=[],callbacks=[],properties=[],renders=[];
+  const ctx={
+    expanded:true,
+    island:{
+      classList:{contains:()=>false},
+      getBoundingClientRect:()=>({width:ctx.width})
+    },
+    width:350,panel:{},
+    ResizeObserver:class{
+      constructor(fn){this.fn=fn;observers.push(this)}
+      observe(){}
+    },
+    requestAnimationFrame:fn=>{callbacks.push(fn);return callbacks.length},
+    $:()=>({style:{setProperty:(name,value)=>properties.push([name,value])}}),
+    resizeWave:()=>renders.push('resize'),
+    drawWave:()=>renders.push('draw'),
+    refreshIslandHeight(){}
+  };
+  runInNewContext(app.slice(start,end),ctx);
+  assert.equal(observers.length,2);
+  for(let i=0;i<10;i++){
+    ctx.width=350+i*20;
+    observers[1].fn()
+  }
+  assert.equal(callbacks.length,1,'multiple observer notifications should be coalesced');
+  callbacks.shift()(12);
+  assert.equal(renders.length,0,'first frame below threshold must defer bitmap');
+  callbacks.shift()(35);
+  assert.deepEqual(renders,['resize','draw']);
+  ctx.width=900;
+  observers[1].fn();
+  callbacks.shift()(48);
+  assert.equal(renders.length,2,'do not allocate bitmap again within 32ms');
+  callbacks.shift()(73);
+  assert.equal(renders.length,4,'final width must not be lost on throttled resize');
+  assert.deepEqual(properties.at(-1),['--wave-width','900px']);
+});
+
+test('cancelled pointer gestures release drag state without storing an abandoned position',()=>{
+  const start=app.indexOf('function stopDrag(e){');
+  const end=app.indexOf("$('#dragHandle').addEventListener",start);
+  assert.ok(start>=0&&end>start);
+  const saved=[],releases=[];
+  const env={
+    dragging:{id:7},
+    shell:{getBoundingClientRect:()=>({left:42,top:60})},
+    options:{offset:null},
+    persist:()=>saved.push(true)
+  };
+  const adapter=runInNewContext(
+    app.slice(start,end)+'\nreturn {stopDrag,setDrag:id=>dragging={id}}',env
+  );
+  adapter.stopDrag({type:'pointercancel',pointerId:7,currentTarget:{
+    releasePointerCapture:id=>releases.push(id)
+  }});
+  assert.equal(saved.length,0);
+  adapter.setDrag(8);
+  adapter.stopDrag({type:'pointerup',pointerId:8,currentTarget:{
+    releasePointerCapture:id=>releases.push(id)
+  }});
+  assert.deepEqual(env.options.offset,{left:42,top:60});
+  assert.equal(saved.length,1);
+  assert.deepEqual(releases,[8]);
+  assert.match(app,/addEventListener\('lostpointercapture',stopDrag\)/);
+  assert.match(css,/\.panel-drag\{touch-action:none/);
+});
