@@ -8,7 +8,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const source = resolve(here, '../..');
 const target = resolve(here, '../dist');
 await mkdir(target, { recursive: true });
-for (const file of ['index.html', 'styles.css', 'system-media.js', 'audio-visualizer.js', 'desktop-mode.js', 'app.js']) {
+for (const file of ['index.html', 'styles.css', 'system-media.js', 'audio-visualizer.js', 'desktop-mode.js', 'motion.js', 'app.js']) {
   await copyFile(join(source, file), join(target, file));
 }
 console.log('Island Lab: prepared static frontend in native/dist');
