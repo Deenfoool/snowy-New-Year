@@ -110,8 +110,12 @@ async function setExpanded(value){
   // Grow the transparent Windows viewport first. The actual visible pill
   // then morphs inside it rather than flashing a full-sized panel.
   if(next&&nativeShell){
-    await resizeNativeWindow(true);
-    if(request!==expandRequest)return
+    const resized=await resizeNativeWindow(true);
+    if(request!==expandRequest)return;
+    if(!resized){
+      toast('Не удалось раскрыть окно Windows');
+      return
+    }
   }
   commitExpanded(next);
   if(!next&&nativeShell){
@@ -146,12 +150,22 @@ function showTab(name){
     motion?.motionAllowed(options.reducedMotion)&&
     typeof document.startViewTransition==='function';
   if(transitioning){
-    document.startViewTransition(change);
+    try{document.startViewTransition(change)}
+    catch(error){
+      console.warn('Island Lab: view transition unavailable',error);
+      change()
+    }
   }else change();
   if(!expanded)void setExpanded(true)
 }
-$('#expandTarget').addEventListener('click',()=>setExpanded(true));
-$('#collapsedBar').addEventListener('click',e=>{if(!e.target.closest('.micro-player'))setExpanded(true)});
+$('#expandTarget').addEventListener('click',event=>{
+  event.stopPropagation();
+  void setExpanded(true);
+});
+$('#collapsedBar').addEventListener('click',event=>{
+  if(event.target.closest('.micro-player')||event.target.closest('#expandTarget'))return;
+  void setExpanded(true);
+});
 $('#collapseButton').addEventListener('click',()=>setExpanded(false));
 $$('.tab').forEach(b=>b.addEventListener('click',()=>showTab(b.dataset.tab)));
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&expanded&&document.activeElement?.tagName!=='INPUT'&&document.activeElement?.tagName!=='TEXTAREA')setExpanded(false)});
