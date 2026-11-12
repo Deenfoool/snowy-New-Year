@@ -631,6 +631,7 @@ function updatePlayer(){
  */
 const wave=$('#waveCanvas'),wc=wave.getContext('2d');
 let waveW=0,waveH=0,lastWave=0,waveRaf=0,lastProgress=0;
+let cachedWaveGradient=null,cachedWaveAccent='';
 const waveDynamics={
   height:0,velocity:0,
   bands:Array(16).fill(0),lastAt:0
@@ -643,10 +644,23 @@ function resizeWave(){
   const pixelsW=Math.round(waveW*dpr),pixelsH=Math.round(waveH*dpr);
   if(wave.width!==pixelsW||wave.height!==pixelsH){
     wave.width=pixelsW;wave.height=pixelsH;
-    wc.setTransform(dpr,0,0,dpr,0,0)
+    wc.setTransform(dpr,0,0,dpr,0,0);
+    cachedWaveGradient=null
   }
 }
 function clearWave(){wc.clearRect(0,0,waveW,waveH)}
+function getWaveGradient(){
+  // Rebuilding a CanvasGradient and reading computed styles every audio frame
+  // is wasted CPU/GPU work. Recreate only after a color or canvas-size change.
+  if(cachedWaveGradient&&cachedWaveAccent===options.accent)return cachedWaveGradient;
+  const gradient=wc.createLinearGradient(0,0,0,waveH);
+  gradient.addColorStop(0,'#182b3e');
+  gradient.addColorStop(.65,'#263f55');
+  gradient.addColorStop(1,options.accent);
+  cachedWaveGradient=gradient;
+  cachedWaveAccent=options.accent;
+  return gradient
+}
 function waveHasTail(){
   return waveDynamics.height>.008||Math.abs(waveDynamics.velocity)>.018||
     waveDynamics.bands.some(level=>level>.01)
@@ -673,7 +687,11 @@ function waveSignal(){
 }
 function drawWave(now=performance.now()){
   if(!expanded)return;
-  if(Math.abs(island.getBoundingClientRect().width-waveW)>1.5)resizeWave();
+  // Read layout during geometry morphs, not on every steady-state audio frame.
+  if(waveW<=1||island.classList.contains('is-morphing')||
+      typeof ResizeObserver==='undefined'){
+    if(Math.abs(island.getBoundingClientRect().width-waveW)>1.5)resizeWave()
+  }
   const delta=waveDynamics.lastAt?Math.min(.05,Math.max(.008,(now-waveDynamics.lastAt)/1000)):1/60;
   waveDynamics.lastAt=now;
   const allowed=options.waveEnabled&&!options.reducedMotion&&
@@ -701,12 +719,7 @@ function drawWave(now=performance.now()){
   clearWave();
   if(!waveHasTail())return;
   const amplitude=waveDynamics.height;
-  const fill=getComputedStyle(document.documentElement)
-    .getPropertyValue('--accent').trim()||'#8dd9f6';
-  const gradient=wc.createLinearGradient(0,0,0,waveH);
-  gradient.addColorStop(0,'#182b3e');
-  gradient.addColorStop(.65,'#263f55');
-  gradient.addColorStop(1,fill);
+  const gradient=getWaveGradient();
   wc.beginPath();wc.moveTo(0,0);
   for(let x=0;x<=waveW;x+=3){
     const t=x/waveW;
@@ -738,7 +751,9 @@ function frame(now){
     waveDynamics.height=0;waveDynamics.velocity=0;
     waveDynamics.bands.fill(0);clearWave();return
   }
-  if(now-lastWave>=14){
+  // Follow 60/120/144 Hz browser refresh when the display can deliver it.
+  // A 6ms floor caps pathological high-rate RAFs at around 166 FPS.
+  if(now-lastWave>=6){
     drawWave(now);
     if(music.playing){
       if(music.mode==='demo'&&currentTime()>=duration()){
