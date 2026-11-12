@@ -22,7 +22,6 @@
         "alwaysOnTop": false,
         "resizable": false,
         "shadow": false,
-        "focus": true,
         "center": true
       }
     ],
