@@ -249,10 +249,20 @@ function startDrag(e){
   e.currentTarget.setPointerCapture(e.pointerId);e.preventDefault()
 }
 function moveDrag(e){if(!dragging||dragging.id!==e.pointerId)return;const left=e.clientX-dragging.dx,top=e.clientY-dragging.dy;placeIsland(left,top)}
-function stopDrag(e){if(!dragging||dragging.id!==e.pointerId)return;dragging=null;const r=shell.getBoundingClientRect();options.offset={left:r.left,top:r.top};persist()}
+function stopDrag(e){
+  if(!dragging||dragging.id!==e.pointerId)return;
+  dragging=null;
+  if(e.type==='pointercancel')return;
+  e.currentTarget.releasePointerCapture?.(e.pointerId);
+  const r=shell.getBoundingClientRect();
+  options.offset={left:r.left,top:r.top};
+  persist()
+}
 $('#dragHandle').addEventListener('pointerdown',startDrag);
 $('#dragHandle').addEventListener('pointermove',moveDrag);
 $('#dragHandle').addEventListener('pointerup',stopDrag);
+$('#dragHandle').addEventListener('pointercancel',stopDrag);
+$('#dragHandle').addEventListener('lostpointercapture',stopDrag);
 $('#resetPosition').addEventListener('click',()=>{
   options.offset=null;persist();
   shell.style.left='50%';shell.style.top=nativeShell?'8px':'35px';
