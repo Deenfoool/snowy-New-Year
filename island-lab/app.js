@@ -197,7 +197,14 @@ if(typeof ResizeObserver!=='undefined'){
       if(expanded&&!island.classList.contains('is-morphing'))refreshIslandHeight()
     })
   });
-  observer.observe(panel)
+  observer.observe(panel);
+  // The downward wave is outside the clipped capsule. Keep its visible
+  // width aligned with the border while CSS animates the island geometry.
+  const borderObserver=new ResizeObserver(()=>{
+    const width=island.getBoundingClientRect().width;
+    $('#waveCanvas').style.setProperty('--wave-width',Math.round(width)+'px');
+  });
+  borderObserver.observe(island)
 }
 
 /* Music engine: demo synthesizer and user-loaded files feed the SAME analyser. */
@@ -550,6 +557,7 @@ function resizeWave(){
   const width=island.getBoundingClientRect().width;
   const dpr=Math.min(window.devicePixelRatio||1,2);
   waveW=Math.max(1,width);waveH=39;
+  wave.style.setProperty('--wave-width',Math.round(waveW)+'px');
   const pixelsW=Math.round(waveW*dpr),pixelsH=Math.round(waveH*dpr);
   if(wave.width!==pixelsW||wave.height!==pixelsH){
     wave.width=pixelsW;wave.height=pixelsH;
