@@ -9,6 +9,8 @@ build = "build.rs"
 [dependencies]
 tauri = { version = "2" }
 serde = { version = "1", features = ["derive"] }
+base64 = "0.22"
+dirs = "6"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62.2", features = ["Foundation", "Media_Control"] }
