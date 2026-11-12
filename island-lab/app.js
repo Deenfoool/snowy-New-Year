@@ -64,6 +64,8 @@ function animateCoverChange(){
 }
 let expanded=false,tab='home',morphSequence=0,morphTimer=0;
 const nav=$('.tabs');
+const collapsedBar=$('#collapsedBar');
+let tabRequest=0,tabTransition=null;
 const navIndicator=document.createElement('span');
 navIndicator.className='tabs-indicator';
 navIndicator.setAttribute('aria-hidden','true');
@@ -93,7 +95,15 @@ function commitExpanded(next){
   clearTimeout(morphTimer);
   island.classList.add('is-morphing');
   island.classList.toggle('collapsed',!next);
+  // Make only the currently visible layout keyboard-reachable. Preserve
+  // focus when its old container becomes inert, especially for Escape.
+  const focused=document.activeElement;
+  const cameFromMini=next&&collapsedBar.contains(focused);
+  const cameFromPanel=!next&&panel.contains(focused);
+  collapsedBar.inert=next;
   panel.inert=!next;
+  if(cameFromMini)$('#tab-home')?.focus({preventScroll:true});
+  if(cameFromPanel)$('#expandTarget')?.focus({preventScroll:true});
   if(next){
     refreshIslandHeight();
     requestAnimationFrame(()=>{resizeWave();drawWave();startWaveLoop();syncTabIndicator()});
@@ -150,33 +160,65 @@ async function setExpanded(value){
 function showTab(name){
   const nextView=$('#view-'+name);
   if(!nextView)return;
+  const ticket=++tabRequest;
   const change=()=>{
+    // View Transitions can defer their update callback. Ignore an obsolete
+    // one if a newer tab was selected while the old transition was pending.
+    if(ticket!==tabRequest)return;
     tab=name;
     $$('.tab').forEach(button=>{
       const active=button.dataset.tab===name;
       button.classList.toggle('active',active);
-      if(active)button.setAttribute('aria-current','page');
-      else button.removeAttribute('aria-current')
+      button.setAttribute('aria-selected',String(active));
+      button.tabIndex=active?0:-1
     });
     $$('.tab-content').forEach(view=>{
-      view.classList.toggle('active',view===nextView)
+      const active=view===nextView;
+      view.classList.toggle('active',active);
+      view.inert=!active
     });
     if(name==='shots')requestAnimationFrame(updateEditor);
-    requestAnimationFrame(()=>{syncTabIndicator();refreshIslandHeight()})
+    requestAnimationFrame(()=>{
+      if(ticket!==tabRequest)return;
+      syncTabIndicator();refreshIslandHeight()
+    })
   };
   const transitioning=tab!==name&&expanded&&
     !island.classList.contains('collapsed')&&
     motion?.motionAllowed(options.reducedMotion)&&
     typeof document.startViewTransition==='function';
   if(transitioning){
-    try{document.startViewTransition(change)}
-    catch(error){
+    try{
+      tabTransition?.skipTransition?.();
+      tabTransition=document.startViewTransition(change);
+      tabTransition.finished.catch(()=>{}).finally(()=>{
+        if(ticket===tabRequest)tabTransition=null
+      })
+    }catch(error){
       console.warn('Island Lab: view transition unavailable',error);
       change()
     }
   }else change();
   if(!expanded)void setExpanded(true)
 }
+nav.addEventListener('keydown',event=>{
+  if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;
+  const buttons=$$('.tab').filter(button=>!button.disabled);
+  if(!buttons.length)return;
+  const current=buttons.indexOf(document.activeElement);
+  if(current<0)return;
+  event.preventDefault();
+  const nextIndex=event.key==='Home'?0:
+    event.key==='End'?buttons.length-1:
+    (current+(event.key==='ArrowRight'?1:-1)+buttons.length)%buttons.length;
+  const next=buttons[nextIndex];
+  next.focus({preventScroll:true});
+  showTab(next.dataset.tab);
+  next.scrollIntoView?.({
+    block:'nearest',inline:'nearest',
+    behavior:motion?.motionAllowed(options.reducedMotion)?'smooth':'auto'
+  })
+});
 $('#expandTarget').addEventListener('click',event=>{
   event.stopPropagation();
   void setExpanded(true);
@@ -187,7 +229,12 @@ $('#collapsedBar').addEventListener('click',event=>{
 });
 $('#collapseButton').addEventListener('click',()=>setExpanded(false));
 $$('.tab').forEach(b=>b.addEventListener('click',()=>showTab(b.dataset.tab)));
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&expanded&&document.activeElement?.tagName!=='INPUT'&&document.activeElement?.tagName!=='TEXTAREA')setExpanded(false)});
+document.addEventListener('keydown',event=>{
+  if(event.key!=='Escape'||!expanded||event.defaultPrevented||event.isComposing)return;
+  if(document.querySelector('dialog[open]'))return;
+  event.preventDefault();
+  void setExpanded(false)
+});
 function placeIsland(left,top){const w=shell.offsetWidth||900;const l=Math.max(8,Math.min(innerWidth-w-8,left));const t=Math.max(4,Math.min(innerHeight-90,top));shell.style.left=l+'px';shell.style.top=t+'px';shell.style.transform='none'}
 let dragging=null;
 function startDrag(e){
