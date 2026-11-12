@@ -157,3 +157,20 @@ test('local filename parser derives artist and title without hardcoding', () => 
   assert.deepEqual(JSON.parse(JSON.stringify(parse('Band - Title.mp3'))),{artist:'Band',title:'Title'});
   assert.deepEqual(JSON.parse(JSON.stringify(parse('Untitled.wav'))),{artist:'',title:'Untitled'});
 });
+
+test('native player source is packaged with an explicit Windows-only switch', () => {
+  const bridge=readFileSync(join(dir,'system-media.js'),'utf8');
+  const stage=readFileSync(join(dir,'native','scripts','prepare.mjs'),'utf8');
+  const nativeMain=readFileSync(join(dir,'native','src-tauri','src','main.rs'),'utf8');
+  const media=readFileSync(join(dir,'native','src-tauri','src','media.rs'),'utf8');
+  assert.doesNotThrow(()=>new Script(bridge,{filename:'system-media.js'}));
+  assert.match(html,/src="\.\/system-media\.js"/);
+  assert.match(html,/id="systemPlayerToggle"/);
+  assert.match(css,/html\.native-shell \.native-only/);
+  assert.match(stage,/system-media\.js/);
+  assert.match(nativeMain,/media::system_media_snapshot/);
+  assert.match(nativeMain,/media::system_media_action/);
+  assert.match(media,/GlobalSystemMediaTransportControlsSessionManager/);
+  assert.match(media,/TryTogglePlayPauseAsync/);
+  assert.match(js,/function disableSystemMusic\(/);
+});
