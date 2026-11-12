@@ -10,3 +10,16 @@
 .toast{position:fixed;bottom:28px;left:50%;transform:translate(-50%,20px);background:#243d54;border:1px solid #52718a;box-shadow:0 15px 36px #0007;padding:11px 19px;opacity:0;transition:opacity .2s,transform .2s;border-radius:12px;z-index:30;max-width:calc(100vw - 30px);font-size:12px;pointer-events:none}.toast.visible{opacity:1;transform:translate(-50%,0)}
 @media(max-width:780px){.island-shell{top:16px;width:calc(100vw - 24px)}.panel-header{padding:9px 12px}.tabs{padding:9px;gap:2px}.tab{padding:8px 9px;font-size:10px}.tab span{display:none}.tab.active span{display:inline}.panel-body{padding:15px 12px}.home-grid{grid-template-columns:1fr 1fr}.weather-card{grid-column:span 2}.weather-card{display:grid;grid-template-columns:1fr 1fr;align-items:center}.weather-card .card-eyebrow{grid-column:span 2}.weather-action{grid-column:span 2}.weather-symbol{font-size:34px}.weather-temperature{font-size:31px}.lyric-drum{min-height:176px}.settings-grid{grid-template-columns:1fr}.notes-layout{grid-template-columns:145px 1fr}.section-label span{display:none}.desktop-caption{bottom:12%}}@media(max-width:485px){.home-grid{grid-template-columns:1fr}.weather-card{grid-column:span 1}.brand-name small,.panel-state{display:none}.brand-mark{font-size:21px}.panel-header{min-height:54px}.tabs{justify-content:space-around}.tab{padding:8px}.tab.active span{display:none}.notes-layout{grid-template-columns:1fr}.notes-side{display:flex;gap:7px}.notes-side>.primary-action{width:auto}.notes-list{display:flex;flex-direction:row;overflow-x:auto}.note-item{flex-shrink:0}.island.collapsed{width:326px}.desktop-instruction{padding:0 10px}.settings-card>label:not(.switch-row){flex-wrap:wrap}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+
+/* Manual, privacy-respecting lookup: lyrics are fetched only on explicit click. */
+.lyrics-lookup{margin-top:12px;border-top:1px solid var(--border);padding-top:10px;display:flex;flex-direction:column;gap:7px}
+.lyrics-lookup-fields{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.lyrics-lookup input{min-width:0;width:100%;background:#152a3c;border:1px solid var(--border);color:var(--text);border-radius:7px;font-size:10px;padding:8px}
+.lyrics-lookup input::placeholder{color:#7490a4}
+.lyrics-search{width:100%}
+.lyrics-search:disabled{opacity:.55;cursor:progress}
+.lyrics-offset{display:flex;align-items:center;justify-content:center;gap:10px;font-size:10px;color:var(--muted);margin-top:9px}
+.lyrics-offset output{min-width:40px;text-align:center;color:#d4ecfc}
+.offset-button{width:25px;height:24px;border:1px solid var(--border);border-radius:7px;background:#22394d;color:var(--accent)}
+.offset-button:hover{background:rgba(var(--accent-rgb),.15)}
+@media(max-width:480px){.lyrics-lookup-fields{grid-template-columns:1fr}.lyrics-search{padding:10px}}
