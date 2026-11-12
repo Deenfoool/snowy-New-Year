@@ -118,3 +118,13 @@ This module cannot capture global Print Screen yet; the Windows screen-capture a
 The WASAPI capture lifecycle also now coordinates simultaneous start/stop requests, including when the capture is disabled before the native startup handshake finishes. The Rust worker is synchronized with a mutex; no audio capture should remain enabled after an opt-out command returns.
 
 For the first Windows smoke test, annotate an image, crop it, save, open Pictures/Island Lab, and verify the exported PNG dimensions and contents. Then disable WASAPI immediately after enabling it and verify it stops.
+
+## Island Motion
+
+The shared web frontend now has spring-styled width/height/radius morphs, staggered content reveals, an animated tab indicator, a directional three-line lyric reel, inertial 16-band audio wave, and frame-time-based snow preview. Controls and track/weather text transitions are subtle and respect `prefers-reduced-motion`.
+
+In **Настройки → Характер анимаций**, choose `Плавный пружинный` (560 ms), `Быстрый отзывчивый` (390 ms) or `Спокойный мягкий` (700 ms). **Измерить плавность · 8 секунд** captures aggregate on-demand frame pacing metrics and reports FPS/P95; it performs no persistent monitoring or audio recording.
+
+The native viewport expands **before** the pill animation begins and shrinks **after** collapse finishes. IPC resize calls are serialized so fast user interaction cannot leave a large invisible window. The capsule clips morphing content, while its downward audio wave is outside that clip.
+
+See [full motion design spec](../MOTION.md). **Actual Windows performance remains unverified** until a local WebView2 build is run.
