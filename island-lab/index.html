@@ -40,16 +40,16 @@
             <div class="header-right"><span class="panel-state" id="panelState">Демо-режим</span><button id="collapseButton" class="icon-button" type="button" aria-label="Свернуть Island Lab" title="Свернуть">⌃</button></div>
           </header>
 
-          <nav class="tabs" aria-label="Разделы">
-            <button type="button" id="tab-home" class="tab active" data-tab="home" aria-current="page">⌂ <span>Главная</span></button>
-            <button type="button" id="tab-shots" class="tab" data-tab="shots">▣ <span>Скриншоты</span></button>
-            <button type="button" id="tab-snow" class="tab" data-tab="snow">❄ <span>Snowy New Year</span></button>
-            <button type="button" id="tab-notes" class="tab" data-tab="notes">▤ <span>Блокнот</span></button>
-            <button type="button" id="tab-settings" class="tab" data-tab="settings">⚙ <span>Настройки</span></button>
+          <nav class="tabs" role="tablist" aria-label="Разделы">
+            <button type="button" id="tab-home" class="tab active" role="tab" data-tab="home" aria-controls="view-home" aria-selected="true" tabindex="0">⌂ <span>Главная</span></button>
+            <button type="button" id="tab-shots" class="tab" role="tab" data-tab="shots" aria-controls="view-shots" aria-selected="false" tabindex="-1">▣ <span>Скриншоты</span></button>
+            <button type="button" id="tab-snow" class="tab" role="tab" data-tab="snow" aria-controls="view-snow" aria-selected="false" tabindex="-1">❄ <span>Snowy New Year</span></button>
+            <button type="button" id="tab-notes" class="tab" role="tab" data-tab="notes" aria-controls="view-notes" aria-selected="false" tabindex="-1">▤ <span>Блокнот</span></button>
+            <button type="button" id="tab-settings" class="tab" role="tab" data-tab="settings" aria-controls="view-settings" aria-selected="false" tabindex="-1">⚙ <span>Настройки</span></button>
           </nav>
 
           <div class="panel-body">
-            <section class="tab-content active" id="view-home" aria-labelledby="tab-home">
+            <section class="tab-content active" id="view-home" role="tabpanel" tabindex="0" aria-labelledby="tab-home">
               <div class="section-label">ГЛАВНАЯ <span>МУЗЫКА · ТЕКСТ · ПОГОДА</span></div>
               <div class="home-grid">
                 <article class="card music-card">
@@ -108,7 +108,7 @@
               <div class="home-hint"><span class="hint-dot"></span>Волна — настоящий нижний край Island. Нажми ▶ и посмотри, как он меняется от аудио.</div>
             </section>
 
-            <section class="tab-content" id="view-shots">
+            <section class="tab-content" id="view-shots" role="tabpanel" tabindex="0">
               <div class="section-label">СКРИНШОТЫ <span>СНИМОК · РЕДАКТОР · ЭКСПОРТ</span></div>
               <div class="actions"><button class="primary-action" type="button" id="captureScreen">▣ Сделать скриншот</button><label class="secondary-action">↑ Открыть изображение<input id="imageFile" type="file" accept="image/*" hidden></label><button class="secondary-action" type="button" id="pasteHelp">⌘ Вставить из буфера</button><button class="secondary-action" type="button" id="saveShot">↓ Сохранить PNG</button><button class="secondary-action native-only" type="button" id="openShotsFolder">▤ Открыть папку</button></div>
               <div class="toolstrip" aria-label="Инструменты рисования">
@@ -127,7 +127,7 @@
               <div class="editor-footer"><button type="button" class="secondary-action" id="removeCrop" hidden>Отменить обрезку</button><span id="editorStatus">Вставь скриншот Ctrl+V или загрузи изображение</span><span>Print Screen: системный снимок → Ctrl+V</span></div>
             </section>
 
-            <section class="tab-content" id="view-snow">
+            <section class="tab-content" id="view-snow" role="tabpanel" tabindex="0">
               <div class="section-label">SNOWY NEW YEAR <span>ОТДЕЛЬНЫЙ МОДУЛЬ · ДЕМОНСТРАЦИЯ</span></div>
               <div class="snow-card card"><div class="snow-heading"><span class="snow-illustration">❄</span><div><h2>Snowy New Year</h2><p class="muted">Управление эффектами рабочего стола</p></div><span class="demo-pill">DEMO</span></div>
               <label class="switch-row"><span>Снегопад <small>Анимированные снежинки на демонстрационном рабочем столе</small></span><input type="checkbox" id="snowToggle" checked><i></i></label>
@@ -138,7 +138,7 @@
               <a class="external-link" target="_blank" rel="noopener noreferrer" href="https://github.com/Deenfoool/snowy-New-Year">Репозиторий Snowy New Year ↗</a></div>
             </section>
 
-            <section class="tab-content" id="view-notes">
+            <section class="tab-content" id="view-notes" role="tabpanel" tabindex="0">
               <div class="section-label">БЛОКНОТ <span>АВТОСОХРАНЕНИЕ НА ЭТОМ УСТРОЙСТВЕ</span></div>
               <div class="notes-layout">
                 <aside class="notes-side"><button type="button" class="primary-action" id="addNote">＋ Новая заметка</button><div class="notes-list" id="notesList"></div></aside>
@@ -146,7 +146,7 @@
               </div>
             </section>
 
-            <section class="tab-content" id="view-settings">
+            <section class="tab-content" id="view-settings" role="tabpanel" tabindex="0">
               <div class="section-label">НАСТРОЙКИ <span>ВНЕШНИЙ ВИД · ПОВЕДЕНИЕ</span></div>
               <div class="settings-grid">
                 <div class="card settings-card"><h2>Оформление</h2><label>Акцентный цвет <input id="accentColor" type="color" value="#8dd9f6"></label><label>Сила волны <input id="wavePower" type="range" min="10" max="100" value="65"><span id="waveValue">65%</span></label><label class="switch-row"><span>Аудиореактивная граница</span><input type="checkbox" id="waveToggle" checked><i></i></label><label class="switch-row"><span>Снег на фоне</span><input type="checkbox" id="backgroundSnow" checked><i></i></label></div>
