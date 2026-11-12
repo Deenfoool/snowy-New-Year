@@ -45,3 +45,11 @@ html.native-shell .island{max-width:100%}
 .diagnostics-output{font:11px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere;color:#b4d4e9;background:#102436;border:1px solid var(--border);border-radius:11px;padding:11px 13px;max-height:220px;overflow:auto;user-select:text}
 .diagnostics-actions .danger{border-color:rgba(252,141,155,.35)}
 .diagnostics-actions [hidden]{display:none!important}
+
+/* Native Media Sessions are never offered in the standalone browser preview. */
+.native-only{display:none!important}
+html.native-shell .native-only{display:block!important}
+.system-player-control{border-top:1px solid var(--border);margin-top:13px;padding-top:7px}
+.system-player-control .switch-row{font-size:11px;padding:9px 0}
+.system-player-control .switch-row span small{font-size:9px}
+.system-player-status{display:block;font-size:9px;line-height:1.5;overflow-wrap:anywhere;margin-top:6px}
