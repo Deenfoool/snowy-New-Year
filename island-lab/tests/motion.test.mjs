@@ -116,6 +116,12 @@ test('frame pacing summary reports mean FPS, p95 and jank',()=>{
   const janky=summarize([...Array(18).fill(16.7),60,60]);
   assert.equal(janky.slowFrames,2);
   assert.equal(janky.p95Ms,60);
+  assert.equal(janky.baselineMs,16.7);
+  // A 120Hz display has an ~8.3ms budget; 16.7ms should count as a
+  // dropped frame even though it is below the old fixed 33ms threshold.
+  const highRefresh=summarize([...Array(18).fill(8.3),16.7,16.7]);
+  assert.equal(highRefresh.slowFrames,2);
+  assert.equal(highRefresh.baselineMs,8.3);
   assert.equal(summarize([]),null);
   assert.match(html,/id="motionBenchmarkBtn"/);
   assert.match(html,/id="motionBenchmarkResult"/);
