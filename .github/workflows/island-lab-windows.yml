@@ -1,0 +1,55 @@
+name: Island Lab · Windows smoke build
+
+on:
+  push:
+    branches:
+      - feature/island-lab
+    paths:
+      - "island-lab/**"
+      - ".github/workflows/island-lab-windows.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: island-lab/native
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "island-lab/native/src-tauri -> target"
+
+      - name: Install native CLI dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Web smoke tests
+        run: npm test
+
+      - name: Compile Windows executable (no installer)
+        run: npm run build
+
+      - name: Upload unsigned Windows executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: island-lab-windows-unsigned
+          path: island-lab/native/src-tauri/target/release/island-lab-native.exe
+          if-no-files-found: error
+          retention-days: 7
