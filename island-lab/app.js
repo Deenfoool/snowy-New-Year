@@ -280,9 +280,22 @@ if(typeof ResizeObserver!=='undefined'){
   observer.observe(panel);
   // The downward wave is outside the clipped capsule. Keep its visible
   // width aligned with the border while CSS animates the island geometry.
+  let resizeWaveRaf=0,lastCanvasResize=0;
   const borderObserver=new ResizeObserver(()=>{
     const width=island.getBoundingClientRect().width;
     $('#waveCanvas').style.setProperty('--wave-width',Math.round(width)+'px');
+    if(!expanded||resizeWaveRaf)return;
+    // Avoid recreating the canvas bitmap at every sub-pixel width change
+    // during the 560ms capsule morph. Its CSS size remains continuously
+    // animated while bitmap resizing is capped to ~30Hz.
+    resizeWaveRaf=requestAnimationFrame(now=>{
+      resizeWaveRaf=0;
+      if(!expanded)return;
+      if(now-lastCanvasResize<32)return;
+      lastCanvasResize=now;
+      resizeWave();
+      drawWave(now)
+    })
   });
   borderObserver.observe(island)
 }
@@ -687,9 +700,9 @@ function waveSignal(){
 }
 function drawWave(now=performance.now()){
   if(!expanded)return;
-  // Read layout during geometry morphs, not on every steady-state audio frame.
-  if(waveW<=1||island.classList.contains('is-morphing')||
-      typeof ResizeObserver==='undefined'){
+  // ResizeObserver handles morph geometry in modern browsers. On older
+  // engines, fall back to an on-demand width check.
+  if(waveW<=1||typeof ResizeObserver==='undefined'){
     if(Math.abs(island.getBoundingClientRect().width-waveW)>1.5)resizeWave()
   }
   const delta=waveDynamics.lastAt?Math.min(.05,Math.max(.008,(now-waveDynamics.lastAt)/1000)):1/60;
