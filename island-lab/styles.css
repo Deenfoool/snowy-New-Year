@@ -289,3 +289,7 @@ button:focus-visible,select:focus-visible,[role="tabpanel"]:focus-visible{
   .micro-weather{gap:3px}
   .weather-demo-dot{display:none}
 }
+
+/* Touch and stylus dragging: keep scroll gestures in the content area,
+   but hand pointer capture of the dedicated header handle to the app. */
+.panel-drag{touch-action:none;-webkit-user-select:none;user-select:none}
