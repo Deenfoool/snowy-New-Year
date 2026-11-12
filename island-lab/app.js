@@ -288,14 +288,20 @@ if(typeof ResizeObserver!=='undefined'){
     // Avoid recreating the canvas bitmap at every sub-pixel width change
     // during the 560ms capsule morph. Its CSS size remains continuously
     // animated while bitmap resizing is capped to ~30Hz.
-    resizeWaveRaf=requestAnimationFrame(now=>{
+    const updateBitmap=now=>{
+      if(!expanded){resizeWaveRaf=0;return}
+      if(now-lastCanvasResize<32){
+        // Defer once more rather than permanently skipping the last size:
+        // the final Observer notification could arrive just below 32ms.
+        resizeWaveRaf=requestAnimationFrame(updateBitmap);
+        return
+      }
       resizeWaveRaf=0;
-      if(!expanded)return;
-      if(now-lastCanvasResize<32)return;
       lastCanvasResize=now;
       resizeWave();
       drawWave(now)
-    })
+    };
+    resizeWaveRaf=requestAnimationFrame(updateBitmap)
   });
   borderObserver.observe(island)
 }
