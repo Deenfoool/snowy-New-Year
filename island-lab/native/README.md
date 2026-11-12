@@ -43,6 +43,9 @@ npm run build
 - Drag handle: uses Tauri's permission-gated native `startDragging` instead of only moving an HTML element.
 - The web's demo snow is disabled in native mode, so no hidden full-screen canvas is rendered.
 - The bottom wave canvas is outside the inner card and should preserve the down-facing silhouette.
+- **Experimental native player:** optional Windows Media Sessions adapter. In the expanded main tab, enable **«Плеер Windows»**, then play a track in Spotify, browser or another app exposing System Media Transport Controls. The adapter reads title/artist/position and handles play/pause/next/previous/seek commands. This is real Windows metadata integration, not a simulated music player. Actual Windows functionality still requires testing.
+- The native player polls every 2 seconds only while the user has opted in; the WinRT session manager is cached and polling stops after disabling the switch. The browser does not poll Windows APIs.
+- **No system audio visualization yet**: when external music is selected the wave remains flat until WASAPI integration is implemented. LRC can still be searched and timed against the reported system playback position.
 
 ## What this is *not* (yet)
 
@@ -50,6 +53,7 @@ npm run build
 2. **Not integrated with Windows Media Sessions or system-wide audio.** The pIayer uses the local demo or user-selected audio files.
 3. **No global Print Screen hook.** Capture remains the web permission-based flow, local image upload or clipboard paste. Do not promise native screenshots without implementing them.
 4. **No tray/autostart/installer** in this milestone. The existing Snowy New Year executable and tray are unchanged.
+   The native Media Sessions bridge is an untested Windows API integration. Compatible players must expose an active media session. Some players do not publish a reliable duration/position and may refuse seek or skip commands.
 5. **Not build-verified in this work environment.** The Rust toolchain and Windows SDK are unavailable here. This is a source implementation that must be compiled on Windows before being considered a release.
 
 ## Follow-up verification
