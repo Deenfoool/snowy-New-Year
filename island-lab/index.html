@@ -158,7 +158,11 @@
                       <option value="calm">Спокойный · мягкий</option>
                     </select>
                   </label>
-                  <label class="switch-row"><span>Уменьшить анимации <small>Также учитывает настройку Windows</small></span><input type="checkbox" id="reducedMotion"><i></i></label><button class="secondary-action" type="button" id="resetPosition">Сбросить положение островка</button><p class="muted small">Страница открывается в браузере. В будущей Windows-версии островок будет частью рабочего стола, а не поверх остальных окон.</p><p class="muted small">Погода онлайн запрашивается только по введённому городу. Локальные настройки и заметки хранятся в браузере.</p></div>
+                  <label class="switch-row"><span>Уменьшить анимации <small>Также учитывает настройку Windows</small></span><input type="checkbox" id="reducedMotion"><i></i></label>
+                  <div class="motion-benchmark">
+                    <button type="button" class="secondary-action" id="motionBenchmarkBtn">Измерить плавность · 8 секунд</button>
+                    <output class="muted small" id="motionBenchmarkResult" aria-live="polite">Во время проверки переключай вкладки и включи музыку.</output>
+                  </div><button class="secondary-action" type="button" id="resetPosition">Сбросить положение островка</button><p class="muted small">Страница открывается в браузере. В будущей Windows-версии островок будет частью рабочего стола, а не поверх остальных окон.</p><p class="muted small">Погода онлайн запрашивается только по введённому городу. Локальные настройки и заметки хранятся в браузере.</p></div>
                 <div class="card settings-card native-only desktop-preview-card">
                   <h2>Размещение на рабочем столе</h2>
                   <p class="muted small">Эксперимент Windows: опустить окно за обычные окна. Это <strong>не</strong> прикрепление к Explorer и не гарантирует видимость поверх значков рабочего стола.</p>
