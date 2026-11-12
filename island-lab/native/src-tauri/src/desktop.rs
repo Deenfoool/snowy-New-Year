@@ -91,17 +91,23 @@ pub fn desktop_mode_try(
         .name("island-bottom-revert".to_string())
         .spawn(move || {
             thread::sleep(Duration::from_secs(TRIAL_SECONDS));
-            let Ok(mut current) = state_clone.lock() else {
-                return;
-            };
-            // This lock makes "Keep", "Cancel" and timer rollback mutually
-            // exclusive. No timer may revert a newer trial.
-            if current.revision == revision && current.mode == Mode::Trial {
-                if worker_window.set_always_on_bottom(false).is_ok() {
-                    current.mode = Mode::Normal;
-                    current.revision = current.revision.wrapping_add(1);
+            let target = worker_window.clone();
+            // The timer runs in a worker, but window mutations run on the
+            // actual UI thread. This avoids a worker holding the mutex while
+            // the UI thread is asked to process an OS window change.
+            let _ = worker_window.run_on_main_thread(move || {
+                let Ok(mut current) = state_clone.lock() else {
+                    return;
+                };
+                // UI commands and this callback are serialized by the
+                // main thread; stale timers cannot change newer trials.
+                if current.revision == revision && current.mode == Mode::Trial {
+                    if target.set_always_on_bottom(false).is_ok() {
+                        current.mode = Mode::Normal;
+                        current.revision = current.revision.wrapping_add(1);
+                    }
                 }
-            }
+            });
         })
     {
         // This branch still owns the GUI window handle and can undo the
