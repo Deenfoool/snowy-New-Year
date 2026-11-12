@@ -242,9 +242,65 @@ $('#lyricsLater').addEventListener('click',()=>shiftLyrics(0.5));
  * controlling an external session, the wave remains flat until WASAPI exists.
  */
 const systemMedia=window.IslandSystemMedia;
+const audioCapture=window.IslandAudioCapture;
 const systemSwitch=$('#systemPlayerToggle');
 const systemStatus=$('#systemPlayerStatus');
+const waveSwitch=$('#systemWaveToggle');
+const captureStatus=$('#systemWaveStatus');
+waveSwitch.disabled=true;
+
+async function stopSystemWave(){
+  waveSwitch.checked=false;
+  captureStatus.textContent='Захват выключен';
+  if(audioCapture?.active)await audioCapture.stop();
+  drawWave();
+}
+function nativeSystemAudioActive(){
+  return Boolean(music.mode==='system'&&audioCapture?.active
+    &&audioCapture.lastAt>0
+    &&performance.now()-audioCapture.lastAt<1200);
+}
+waveSwitch.addEventListener('change',async()=>{
+  if(!waveSwitch.checked){
+    await stopSystemWave();return
+  }
+  if(music.mode!=='system'||!nativeShell||!audioCapture?.supported){
+    waveSwitch.checked=false;
+    toast('Сначала подключи системный проигрыватель Windows');
+    return
+  }
+  captureStatus.textContent='Подключение WASAPI…';
+  const ok=await audioCapture.start();
+  if(ok&&waveSwitch.checked&&music.mode==='system'){
+    captureStatus.textContent='WASAPI: захват общего звука активен';
+    startWaveLoop();
+  }else{
+    if(audioCapture.active)await audioCapture.stop();
+    waveSwitch.checked=false;
+    captureStatus.textContent='WASAPI недоступен на этом устройстве';
+  }
+});
+window.addEventListener('island:audio-capture-error',event=>{
+  captureStatus.textContent='Ошибка WASAPI: '+String(event.detail.error).slice(0,96);
+  waveSwitch.checked=false;
+  drawWave();
+});
+window.addEventListener('island:audio-capture-state',event=>{
+  if(!event.detail.active){
+    waveSwitch.checked=false;
+    if(!captureStatus.textContent.startsWith('Ошибка'))
+      captureStatus.textContent='Захват выключен';
+    drawWave();
+  }
+});
+window.addEventListener('island:audio-levels',()=>{
+  if(music.mode==='system'&&waveSwitch.checked&&music.playing){
+    startWaveLoop();
+  }
+});
 function disableSystemMusic(){
+  void stopSystemWave();
+  waveSwitch.disabled=true;
   systemMedia?.disable();
   systemSwitch.checked=false;
   systemStatus.textContent='Не подключён';
@@ -270,6 +326,7 @@ function showSystemSnapshot(snapshot,error){
   if(!snapshot){
     systemStatus.textContent='Нет активного совместимого плеера';
     music.playing=false;music.systemPosition=0;music.systemDuration=0;
+    drawWave();
     $('#trackName').textContent='Ожидание музыки Windows';
     $('#trackArtist').textContent='Запусти совместимый проигрыватель';
     $('#queueCount').textContent='WINDOWS';
@@ -291,6 +348,7 @@ function showSystemSnapshot(snapshot,error){
   music.systemDuration=Number(snapshot.durationSeconds)||0;
   music.systemPosition=Number(snapshot.positionSeconds)||0;
   music.systemAt=performance.now();
+  if(music.playing)startWaveLoop();else drawWave();
   systemStatus.textContent=snapshot.sourceApp||'Windows Media Sessions';
   $('#queueCount').textContent='WINDOWS';
   updatePlayer();
@@ -303,6 +361,8 @@ systemSwitch.addEventListener('change',()=>{
   pause(); // stop only Island Lab's own demo or local playback
   music.mode='system';music.playing=false;music.systemTrackKey='';
   music.systemPosition=0;music.systemDuration=0;
+  waveSwitch.disabled=!audioCapture?.supported;
+  captureStatus.textContent=waveSwitch.disabled?'WASAPI недоступен':'Захват выключен';
   systemStatus.textContent='Подключение к Windows…';
   showSystemSnapshot(null,null);
 });
@@ -316,9 +376,47 @@ function updatePlayer(){const pos=currentTime(),len=duration();$('#timeNow').tex
 const wave=$('#waveCanvas'),wc=wave.getContext('2d');let waveW=0,waveH=0,lastWave=0,waveRaf=0;
 function resizeWave(){const r=island.getBoundingClientRect(),dpr=Math.min(devicePixelRatio||1,2);waveW=Math.max(1,r.width);waveH=39;wave.width=Math.round(waveW*dpr);wave.height=Math.round(waveH*dpr);wc.setTransform(dpr,0,0,dpr,0,0)}
 function clearWave(){wc.clearRect(0,0,waveW,waveH)}
-function drawWave(now=0){if(!expanded)return;if(Math.abs(island.getBoundingClientRect().width-waveW)>2)resizeWave();clearWave();const powered=options.waveEnabled&&music.playing&&music.mode!=='system'&&!options.reducedMotion;const level=powered&&music.analyser?(music.analyser.getByteFrequencyData(music.fft),music.fft.reduce((a,b)=>a+b,0)/(music.fft.length*255)):0;const power=powered?Math.min(1,level*2.7)*(options.wavePower/100):0;const base=powered?3:0;const points=[];for(let x=0;x<=waveW;x+=3){const t=x/waveW;const taper=Math.pow(Math.sin(Math.PI*t),.7);const bin=music.fft?.[Math.min(music.fft.length-1,Math.floor(t*32))]||0;const detail=bin/255;const oscillate=Math.sin(t*32+now*.009)*.54+Math.sin(t*59-now*.012)*.22+Math.sin(t*110+now*.016)*.11;const drop=base+taper*power*(10+22*detail+10*oscillate);points.push([x,Math.max(0,drop)])}points.push([waveW,0]);const fill=getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()||'#8dd9f6';const grad=wc.createLinearGradient(0,0,0,37);grad.addColorStop(0,'#182b3e');grad.addColorStop(.55,'#263f55');grad.addColorStop(1,fill);wc.beginPath();wc.moveTo(0,0);for(const [x,y] of points)wc.lineTo(x,y);wc.closePath();wc.fillStyle=grad;wc.fill();if(power>0){wc.strokeStyle='rgba(192,235,252,.56)';wc.lineWidth=.7;wc.stroke()}}
+function drawWave(now=0){
+  if(!expanded)return;
+  if(Math.abs(island.getBoundingClientRect().width-waveW)>2)resizeWave();
+  clearWave();
+  const system=music.mode==='system';
+  const output=system&&nativeSystemAudioActive()?audioCapture.frame:null;
+  const powered=options.waveEnabled&&music.playing&&!options.reducedMotion
+    &&(!system||Boolean(output));
+  let level=0;
+  if(powered&&system&&output){
+    level=output.rms;
+  }else if(powered&&music.analyser){
+    music.analyser.getByteFrequencyData(music.fft);
+    level=music.fft.reduce((a,b)=>a+b,0)/(music.fft.length*255)
+  }
+  const power=powered?Math.min(1,level*(system?4.0:2.7))*(options.wavePower/100):0;
+  const base=powered?3:0;
+  const points=[];
+  for(let x=0;x<=waveW;x+=3){
+    const t=x/waveW,taper=Math.pow(Math.sin(Math.PI*t),.7);
+    const detail=system
+      ?(output?.bands?.[Math.min(15,Math.floor(t*16))]||0)
+      :((music.fft?.[Math.min(music.fft.length-1,Math.floor(t*32))]||0)/255);
+    const oscillate=Math.sin(t*32+now*.009)*.54
+      +Math.sin(t*59-now*.012)*.22+Math.sin(t*110+now*.016)*.11;
+    const drop=base+taper*power*(10+22*detail+10*oscillate);
+    points.push([x,Math.max(0,drop)]);
+  }
+  points.push([waveW,0]);
+  const fill=getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()||'#8dd9f6';
+  const grad=wc.createLinearGradient(0,0,0,37);
+  grad.addColorStop(0,'#182b3e');grad.addColorStop(.55,'#263f55');grad.addColorStop(1,fill);
+  wc.beginPath();wc.moveTo(0,0);
+  for(const [x,y] of points)wc.lineTo(x,y);
+  wc.closePath();wc.fillStyle=grad;wc.fill();
+  if(power>0){wc.strokeStyle='rgba(192,235,252,.56)';wc.lineWidth=.7;wc.stroke()}
+}
 function frame(now){waveRaf=0;if(!expanded||!music.playing||options.reducedMotion||!options.waveEnabled){drawWave();return}if(now-lastWave>32){drawWave(now);if(music.mode==='demo'&&currentTime()>=duration()){music.offset=0;music.start=performance.now()/1000;music.nextBeat=music.ctx.currentTime;music.beat=0}updatePlayer();lastWave=now}startWaveLoop()}
-function startWaveLoop(){if(waveRaf||!expanded||!music.playing||music.mode==='system'||options.reducedMotion||!options.waveEnabled||document.hidden)return;waveRaf=requestAnimationFrame(frame)}
+function startWaveLoop(){if(waveRaf||!expanded||!music.playing
+    ||(music.mode==='system'&&!nativeSystemAudioActive())
+    ||options.reducedMotion||!options.waveEnabled||document.hidden)return;waveRaf=requestAnimationFrame(frame)}
 
 /* Live weather is an explicit user action; browser-only Open-Meteo fetch. */
 function updateWeather({temp,wind,description,city,live}){const t=(temp>0?'+':temp<0?'−':'')+Math.round(Math.abs(temp))+'°';const symbol=temp<=0?'❄':description.includes('Дожд')?'☂':'☁';$('#weatherTemp').textContent=t;$('#miniTemperature').textContent=t;$('#weatherIcon').textContent=symbol;$('#miniWeatherIcon').textContent=symbol;$('#weatherText').textContent=description;$('#weatherCity').textContent=city;$('#weatherWind').textContent='Ветер '+Math.round(wind/3.6*10)/10+' м/с';$('#weatherSource').textContent=live?'LIVE':'ДЕМО';$('.weather-demo-dot').textContent=live?'LIVE':'DEMO';$('#panelState').textContent=live?'Погода обновлена':'Демо-режим'}
