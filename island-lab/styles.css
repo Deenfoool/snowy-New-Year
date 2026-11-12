@@ -228,3 +228,11 @@ html.motion-reduced *,html.motion-reduced *::before,html.motion-reduced *::after
   .motion-style-control{flex-wrap:wrap}
   .motion-style-control select{width:100%}
 }
+
+.motion-benchmark{display:flex;flex-direction:column;gap:9px;margin:12px 0 4px}
+.motion-benchmark .secondary-action{align-self:flex-start}
+.motion-benchmark output{
+  display:block;font-variant-numeric:tabular-nums;
+  line-height:1.6;color:#9cbcd1;min-height:20px
+}
+.motion-benchmark button:disabled{opacity:.6;cursor:progress}
