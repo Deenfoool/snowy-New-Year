@@ -1,15 +1,12 @@
-//! Reversible trial of Tauri's native always-on-bottom window level.
+//! Safe and reversible test of Tauri's always-on-bottom window level.
 //!
-//! This does NOT reparent into undocumented Explorer WorkerW windows. Windows
-//! may put an always-on-bottom top-level window *behind* desktop icon hosts;
-//! therefore the trial automatically reverts after 20 seconds. Its only goal
-//! is a safe, testable first step toward desktop-only placement.
+//! This is *not* attachment to undocumented Explorer WorkerW windows.
+//! Some Windows configurations can place an always-on-bottom window behind
+//! the desktop icons, rendering it inaccessible. Never persist the mode and
+//! revert automatically after 20 seconds unless confirmed by the user.
 
 use std::{
-    sync::{
-        atomic::{AtomicU64, AtomicU8, Ordering},
-        Arc,
-    },
+    sync::{Arc, Mutex},
     thread,
     time::Duration,
 };
@@ -17,19 +14,28 @@ use std::{
 use serde::Serialize;
 use tauri::{State, WebviewWindow};
 
-const NORMAL: u8 = 0;
-const TRIAL: u8 = 1;
-const KEPT: u8 = 2;
-const TRIAL_DURATION_SECONDS: u64 = 20;
+const TRIAL_SECONDS: u64 = 20;
 
-/// The app starts in Normal on every launch; the preview is never persisted.
-#[derive(Default)]
-pub struct DesktopModeState {
-    generation: Arc<AtomicU64>,
-    mode: Arc<AtomicU8>,
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Mode {
+    #[default]
+    Normal,
+    Trial,
+    Bottom,
 }
 
-#[derive(Serialize)]
+#[derive(Default)]
+struct Inner {
+    mode: Mode,
+    revision: u64,
+}
+
+#[derive(Default)]
+pub struct DesktopModeState {
+    inner: Arc<Mutex<Inner>>,
+}
+
+#[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct DesktopModeStatus {
     pub mode: &'static str,
@@ -37,89 +43,90 @@ pub struct DesktopModeStatus {
     pub genuine_desktop_host: bool,
 }
 
-impl DesktopModeState {
-    fn status(&self) -> DesktopModeStatus {
-        let mode = match self.mode.load(Ordering::Acquire) {
-            TRIAL => "trial",
-            KEPT => "bottom",
-            _ => "normal",
-        };
-        DesktopModeStatus {
-            mode,
-            trial_seconds: TRIAL_DURATION_SECONDS,
-            genuine_desktop_host: false,
-        }
+fn describe(mode: Mode) -> DesktopModeStatus {
+    DesktopModeStatus {
+        mode: match mode {
+            Mode::Normal => "normal",
+            Mode::Trial => "trial",
+            Mode::Bottom => "bottom",
+        },
+        trial_seconds: TRIAL_SECONDS,
+        genuine_desktop_host: false,
     }
 }
 
-#[tauri::command]
-pub fn desktop_mode_status(state: State<'_, DesktopModeState>) -> DesktopModeStatus {
-    state.status()
+fn lock(state: &DesktopModeState) -> Result<std::sync::MutexGuard<'_, Inner>, String> {
+    state
+        .inner
+        .lock()
+        .map_err(|_| "Desktop mode synchronization failed".to_owned())
 }
 
-/// Test lower Z-order in a reversible, timed manner.
+#[tauri::command]
+pub fn desktop_mode_status(
+    state: State<'_, DesktopModeState>,
+) -> Result<DesktopModeStatus, String> {
+    Ok(describe(lock(&state)?.mode))
+}
+
 #[tauri::command]
 pub fn desktop_mode_try(
     window: WebviewWindow,
     state: State<'_, DesktopModeState>,
 ) -> Result<DesktopModeStatus, String> {
-    // On error, don't claim a transition occurred.
+    let mut inner = lock(&state)?;
     window
         .set_always_on_top(false)
         .map_err(|error| error.to_string())?;
     window
         .set_always_on_bottom(true)
         .map_err(|error| error.to_string())?;
-
-    state.mode.store(TRIAL, Ordering::Release);
-    let sequence = state.generation.fetch_add(1, Ordering::AcqRel) + 1;
-    let generation = Arc::clone(&state.generation);
-    let mode = Arc::clone(&state.mode);
-
-    // Clone before launching the worker, so a failed thread spawn can
-    // still restore the window to a normal Z-order immediately.
+    inner.revision = inner.revision.wrapping_add(1);
+    inner.mode = Mode::Trial;
+    let revision = inner.revision;
+    let state_clone = Arc::clone(&state.inner);
     let worker_window = window.clone();
+
     if let Err(error) = thread::Builder::new()
-        .name("island-bottom-trial".into())
+        .name("island-bottom-revert".to_string())
         .spawn(move || {
-            thread::sleep(Duration::from_secs(TRIAL_DURATION_SECONDS));
-            if generation.load(Ordering::Acquire) != sequence {
+            thread::sleep(Duration::from_secs(TRIAL_SECONDS));
+            let Ok(mut current) = state_clone.lock() else {
                 return;
-            }
-            if mode
-                .compare_exchange(TRIAL, NORMAL, Ordering::AcqRel, Ordering::Acquire)
-                .is_ok()
-            {
-                if worker_window.set_always_on_bottom(false).is_err() {
-                    // The window may have closed; the next launch still
-                    // starts in Normal, so there's no persisted danger.
+            };
+            // This lock makes "Keep", "Cancel" and timer rollback mutually
+            // exclusive. No timer may revert a newer trial.
+            if current.revision == revision && current.mode == Mode::Trial {
+                if worker_window.set_always_on_bottom(false).is_ok() {
+                    current.mode = Mode::Normal;
+                    current.revision = current.revision.wrapping_add(1);
                 }
             }
         })
     {
-        // A failed timer must not leave a permanently hidden window.
-        state.generation.fetch_add(1, Ordering::AcqRel);
-        state.mode.store(NORMAL, Ordering::Release);
+        // This branch still owns the GUI window handle and can undo the
+        // potentially invisible lower-layer placement immediately.
+        inner.revision = inner.revision.wrapping_add(1);
+        inner.mode = Mode::Normal;
         window
             .set_always_on_bottom(false)
-            .map_err(|restore| format!("Timer failed: {error}; restore failed: {restore}"))?;
-        return Err(format!("Unable to arm auto-revert timer: {error}"));
+            .map_err(|restore| format!("Timer error: {error}; rollback error: {restore}"))?;
+        return Err(format!("Unable to set rollback timer: {error}"));
     }
-
-    Ok(state.status())
+    Ok(describe(inner.mode))
 }
 
 #[tauri::command]
-pub fn desktop_mode_keep(state: State<'_, DesktopModeState>) -> Result<DesktopModeStatus, String> {
-    if state
-        .mode
-        .compare_exchange(TRIAL, KEPT, Ordering::AcqRel, Ordering::Acquire)
-        .is_err()
-    {
-        return Err("Start the 20-second trial first".into());
+pub fn desktop_mode_keep(
+    state: State<'_, DesktopModeState>,
+) -> Result<DesktopModeStatus, String> {
+    let mut inner = lock(&state)?;
+    if inner.mode != Mode::Trial {
+        return Err("Start a 20-second trial before keeping this mode".to_owned());
     }
-    state.generation.fetch_add(1, Ordering::AcqRel);
-    Ok(state.status())
+    inner.mode = Mode::Bottom;
+    inner.revision = inner.revision.wrapping_add(1);
+    Ok(describe(inner.mode))
 }
 
 #[tauri::command]
@@ -127,22 +134,32 @@ pub fn desktop_mode_cancel(
     window: WebviewWindow,
     state: State<'_, DesktopModeState>,
 ) -> Result<DesktopModeStatus, String> {
-    state.generation.fetch_add(1, Ordering::AcqRel);
-    state.mode.store(NORMAL, Ordering::Release);
+    let mut inner = lock(&state)?;
     window
         .set_always_on_bottom(false)
         .map_err(|error| error.to_string())?;
-    Ok(state.status())
+    inner.mode = Mode::Normal;
+    inner.revision = inner.revision.wrapping_add(1);
+    Ok(describe(inner.mode))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{describe, DesktopModeState, Mode};
+
     #[test]
-    fn starts_in_normal_and_reports_not_a_real_desktop_host() {
-        let mode = DesktopModeState::default();
-        assert_eq!(mode.status().mode, "normal");
-        assert!(!mode.status().genuine_desktop_host);
-        assert_eq!(mode.status().trial_seconds, 20);
+    fn native_mode_starts_safe_and_never_claims_workerw_ownership() {
+        let state = DesktopModeState::default();
+        let inner = state.inner.lock().unwrap();
+        assert_eq!(inner.mode, Mode::Normal);
+        assert_eq!(describe(inner.mode).mode, "normal");
+        assert!(!describe(inner.mode).genuine_desktop_host);
+        assert_eq!(describe(inner.mode).trial_seconds, 20);
+    }
+
+    #[test]
+    fn status_names_are_stable_for_javascript() {
+        assert_eq!(describe(Mode::Trial).mode, "trial");
+        assert_eq!(describe(Mode::Bottom).mode, "bottom");
     }
 }
