@@ -72,16 +72,28 @@
     return pending;
   }
   async function stop(){
+    // Invalidate any in-flight start immediately. A slow listener or IPC
+    // handshake must never re-enable capture after the user turns it off.
+    const wasRunning=active||Boolean(pending);
     generation++;
     active=false;cleanListeners();clear();
     signal('island:audio-capture-state',{active:false});
-    if(!supported)return true;
-    try{await tauri.core.invoke('audio_capture_stop');return true}
-    catch(error){signal('island:audio-capture-error',{error:String(error)});return false}
+    if(!supported||!wasRunning)return true;
+    try{
+      // Wait for an in-flight native start to finish before the final stop.
+      // The start callback also observes generation and cleans up its own
+      // late result; the extra stop makes the ordering unambiguous.
+      if(pending)await pending;
+      await tauri.core.invoke('audio_capture_stop');
+      return true;
+    }catch(error){
+      signal('island:audio-capture-error',{error:String(error)});
+      return false
+    }
   }
   document.addEventListener('visibilitychange',()=>{
     // Hidden or minimized UI must not continue capturing system playback.
-    if(document.hidden&&active)void stop()
+    if(document.hidden&&(active||pending))void stop()
   });
   window.addEventListener('pagehide',()=>{
     if(active||pending)void stop()
@@ -89,6 +101,7 @@
   window.IslandAudioCapture={
     supported,start,stop,
     get active(){return active},
+    get starting(){return Boolean(pending)},
     get frame(){return lastFrame},
     get lastAt(){return lastAt}
   };
