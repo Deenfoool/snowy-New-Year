@@ -62,3 +62,152 @@ html.native-shell .native-only{display:block!important}
 .desktop-preview-actions button:disabled{opacity:.42;cursor:not-allowed}
 .desktop-preview-status{font-size:11px;font-weight:700;color:var(--accent);background:rgba(var(--accent-rgb),.08);border:1px solid rgba(var(--accent-rgb),.20);border-radius:9px;padding:10px}
 .desktop-preview-actions .danger{border-color:rgba(255,144,155,.27)}
+
+/* Island Motion v1 — spring-timed transitions inspired by iOS interaction.
+   The capsule's geometry changes together; content crossfades instead of
+   snapping between display:none states. Native host uses the same CSS. */
+:root{
+  --motion-morph:560ms;
+  --motion-reveal:400ms;
+  --motion-tabs:390ms;
+  --motion-spring:cubic-bezier(.18,1.08,.29,1);
+  --motion-decelerate:cubic-bezier(.18,.78,.2,1)
+}
+html[data-motion="quick"]{--motion-morph:390ms;--motion-reveal:270ms;--motion-tabs:270ms;--motion-spring:cubic-bezier(.2,1,.28,1)}
+html[data-motion="calm"]{--motion-morph:700ms;--motion-reveal:520ms;--motion-tabs:450ms;--motion-spring:cubic-bezier(.18,.95,.25,1)}
+.island{
+  height:var(--island-height,49px);
+  transition:
+    width var(--motion-morph) var(--motion-spring),
+    height var(--motion-morph) var(--motion-spring),
+    border-radius var(--motion-morph) var(--motion-decelerate),
+    box-shadow var(--motion-reveal) ease;
+  isolation:isolate
+}
+.island.collapsed{border-radius:27px}
+.island:not(.collapsed){border-radius:24px 24px 12px 12px}
+.island .collapsed-bar{
+  display:flex!important;
+  position:absolute;top:0;left:0;right:0;z-index:2;
+  opacity:0;visibility:hidden;pointer-events:none;
+  transform:translate3d(0,-7px,0) scale(.97);
+  transform-origin:center top;
+  transition:
+    opacity 170ms ease,
+    transform 340ms var(--motion-spring),
+    visibility 0s linear 170ms
+}
+.island.collapsed .collapsed-bar{
+  opacity:1;visibility:visible;pointer-events:auto;
+  transform:translate3d(0,0,0) scale(1);
+  transition:
+    opacity 200ms ease 125ms,
+    transform 360ms var(--motion-spring) 80ms,
+    visibility 0s
+}
+.island .expanded-panel{
+  display:flex!important;position:absolute;top:0;left:0;width:100%;
+  opacity:1;visibility:visible;pointer-events:auto;
+  transform:translate3d(0,0,0) scale(1);
+  transform-origin:top center;
+  transition:
+    opacity var(--motion-reveal) var(--motion-decelerate) 95ms,
+    transform var(--motion-morph) var(--motion-spring),
+    visibility 0s
+}
+.island.collapsed .expanded-panel{
+  opacity:0;visibility:hidden;pointer-events:none;
+  transform:translate3d(0,-14px,0) scale(.972);
+  transition:
+    opacity 170ms ease,
+    transform 250ms ease,
+    visibility 0s linear 250ms
+}
+/* Individual content items follow the capsule; never animate layout-affecting
+   size on every row. The overall shell handles geometry. */
+.island .panel-header,.island .tabs,.island .panel-body{
+  transition:opacity var(--motion-reveal) ease,filter var(--motion-reveal) ease
+}
+.island.collapsed .panel-header,.island.collapsed .tabs,.island.collapsed .panel-body{
+  opacity:.5;filter:blur(2px)
+}
+/* Shared sliding nav highlight. The real buttons retain keyboard focus. */
+.tabs{position:relative}
+.tabs-indicator{
+  position:absolute;z-index:0;top:11px;left:0;
+  height:var(--tab-indicator-height,36px);
+  width:var(--tab-indicator-width,80px);
+  background:rgba(var(--accent-rgb),.13);
+  border:1px solid rgba(var(--accent-rgb),.32);
+  border-radius:10px;
+  transform:translate3d(var(--tab-indicator-x,17px),0,0);
+  pointer-events:none;
+  transition:
+    transform var(--motion-tabs) var(--motion-spring),
+    width var(--motion-tabs) var(--motion-spring),
+    height var(--motion-tabs) var(--motion-spring),
+    background 200ms ease;
+}
+.tabs>.tab{position:relative;z-index:1;transition:color 180ms ease,transform 220ms var(--motion-spring),background 180ms ease}
+.tabs>.tab.active{background:transparent;border-color:transparent}
+.tab-content.active{animation:tab-content-enter var(--motion-reveal) var(--motion-decelerate) both;view-transition-name:island-content}
+@keyframes tab-content-enter{
+  from{opacity:0;transform:translate3d(0,11px,0)}
+  to{opacity:1;transform:translate3d(0,0,0)}
+}
+::view-transition-old(island-content){
+  animation:tab-content-leave 180ms ease-in both
+}
+::view-transition-new(island-content){
+  animation:tab-content-enter var(--motion-tabs) var(--motion-decelerate) both
+}
+@keyframes tab-content-leave{
+  to{opacity:0;transform:translate3d(0,-11px,0);filter:blur(2px)}
+}
+/* Touch/press feedback should feel elastic, but clicks remain precise. */
+.mini-btn,.icon-button,.tool,.tab,.small-action,.secondary-action,
+.primary-action,.offset-button,.note-item,.collapsed-middle{
+  -webkit-tap-highlight-color:transparent;
+  transform-origin:center;
+  transition:transform 240ms var(--motion-spring),background-color 180ms ease,
+    box-shadow 240ms ease,color 160ms ease
+}
+.mini-btn:active,.icon-button:active,.tool:active,.tab:active,
+.small-action:active,.secondary-action:active,.primary-action:active,
+.offset-button:active,.note-item:active,.collapsed-middle:active{
+  transform:scale(.92);
+  transition-duration:90ms
+}
+.player-buttons .play-big{box-shadow:0 4px 19px rgba(var(--accent-rgb),.18)}
+.player-buttons .play-big:hover{box-shadow:0 4px 25px rgba(var(--accent-rgb),.38);transform:scale(1.055)}
+.cover{transform:translateZ(0)}
+.cover-glow{transition:opacity 350ms ease}
+.island.music-playing .cover-glow{
+  animation:album-light 5.2s ease-in-out infinite alternate
+}
+@keyframes album-light{
+  from{opacity:.45;transform:scale(.92)}
+  to{opacity:1;transform:scale(1.12)}
+}
+.lyric-drum{isolation:isolate}
+.lyric-motion-ghost{white-space:normal;line-height:1.45;z-index:2;text-align:center}
+.lyric-motion-ghost.current{font-size:15px;font-weight:800;color:var(--accent);text-shadow:0 0 18px rgba(var(--accent-rgb),.22)}
+.lyric-motion-ghost.muted{color:#6f8aa2;font-size:11px;opacity:.66}
+.lyric.animate{animation:none}
+/* Keep the bottom edge canvas optically joined to the panel and disable
+   expensive pointer hit testing during transition. */
+#waveCanvas{transform:translateZ(0);will-change:contents}
+.island.is-morphing .expanded-panel{overflow:hidden}
+@media(hover:hover){
+  .mini-btn:hover,.icon-button:hover,.tool:hover{transform:translate3d(0,-1px,0)}
+}
+@media(max-width:780px){.tabs-indicator{top:9px}}
+/* Explicit app preference AND OS accessibility preference. */
+html.motion-reduced *,html.motion-reduced *::before,html.motion-reduced *::after{
+  animation-duration:.01ms!important;animation-delay:0ms!important;
+  transition-duration:.01ms!important;transition-delay:0ms!important;
+  scroll-behavior:auto!important
+}
+@media(prefers-reduced-motion:reduce){
+  .island,.island *{animation-duration:.01ms!important;transition-duration:.01ms!important}
+}
