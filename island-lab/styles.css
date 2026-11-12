@@ -28,3 +28,13 @@
 .crop-outline{position:absolute;border:2px dashed #f3faff;box-shadow:0 0 0 5000px rgba(5,12,23,.54),0 0 0 1px rgba(0,0,0,.6) inset;pointer-events:none;z-index:2;border-radius:1px}
 .crop-outline[hidden]{display:none!important}
 .editor-footer{align-items:center}.editor-footer #removeCrop{padding:6px 9px}
+
+/* Host-only window: WebView2 renders the capsule on a transparent canvas.
+   It is still a normal Windows window until desktop-level docking is added. */
+html.native-shell,html.native-shell body{margin:0;background:transparent!important;overflow:hidden}
+html.native-shell #desktop{min-height:100vh;background:transparent!important}
+html.native-shell .desktop-haze,html.native-shell .desktop-caption,
+html.native-shell .desktop-time,html.native-shell .desktop-instruction,
+html.native-shell #previewSnow{display:none!important}
+html.native-shell .island-shell{top:8px;left:50%;width:calc(100vw - 16px)}
+html.native-shell .island{max-width:100%}
