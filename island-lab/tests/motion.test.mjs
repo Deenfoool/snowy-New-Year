@@ -337,6 +337,7 @@ test('tabs expose ARIA relationships and roving keyboard navigation',()=>{
   const navMock={addEventListener:(name,fn)=>{listeners[name]=fn}};
   const context={
     nav:navMock,tabRequest:0,tabTransition:null,tab:'home',expanded:true,
+    tabScrollPositions:{},panelBody:{scrollTop:0},
     document:documentMock,
     island:{classList:{contains:()=>false}},
     motion:{motionAllowed:()=>false},
@@ -367,6 +368,14 @@ test('tabs expose ARIA relationships and roving keyboard navigation',()=>{
   move('ArrowRight',0);
   move('ArrowLeft',4);
   move('Home',0);
+  context.panelBody.scrollTop=330;
+  simulator.showTab('settings');
+  assert.equal(context.panelBody.scrollTop,0,'first visit starts at top');
+  context.panelBody.scrollTop=190;
+  simulator.showTab('home');
+  assert.equal(context.panelBody.scrollTop,330,'home scroll restored');
+  simulator.showTab('settings');
+  assert.equal(context.panelBody.scrollTop,190,'settings scroll restored');
 });
 
 test('capsule transfers keyboard focus between visible layouts',()=>{
