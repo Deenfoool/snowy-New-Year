@@ -137,35 +137,234 @@ $('#weatherSearch').addEventListener('click',fetchWeather);$('#refreshWeather').
 
 /* Screenshot editor — two stacked canvases; annotations do not damage original image. */
 const base=$('#imageCanvas'),draw=$('#drawCanvas'),bc=base.getContext('2d'),dc=draw.getContext('2d');
-const edit={tool:'pen',color:'#8dd9f6',size:5,undo:[],redo:[],drawing:false,start:null,last:null,snapshot:null};
-function emptyCanvas(){bc.fillStyle='#142a3d';bc.fillRect(0,0,base.width,base.height);bc.fillStyle='#d2e9f5';bc.font='700 36px Segoe UI';bc.fillText('ISLAND LAB',60,115);bc.font='22px Segoe UI';bc.fillStyle='#85afca';bc.fillText('Загрузи изображение или сделай скриншот',60,165);for(let i=0;i<13;i++){bc.strokeStyle='rgba(141,217,246,'+(i%3===0?.15:.07)+')';bc.beginPath();bc.moveTo(0,260+i*32);bc.lineTo(base.width,260+i*32);bc.stroke()}}
-function setCanvasSize(w,h){w=Math.max(100,Math.min(4096,Math.floor(w)));h=Math.max(100,Math.min(4096,Math.floor(h)));base.width=draw.width=w;base.height=draw.height=h;$('.editor-frame').style.aspectRatio=w+'/'+h;edit.undo=[];edit.redo=[]}
-function imageIn(img){setCanvasSize(img.width||img.naturalWidth,img.height||img.naturalHeight);bc.clearRect(0,0,base.width,base.height);bc.drawImage(img,0,0,base.width,base.height);dc.clearRect(0,0,draw.width,draw.height);updateEditor();showTab('shots')}
-function loadImage(file){if(!file||!file.type.startsWith('image/'))return;const url=URL.createObjectURL(file),img=new Image();img.onload=()=>{imageIn(img);URL.revokeObjectURL(url);toast('Изображение открыто')};img.onerror=()=>{URL.revokeObjectURL(url);toast('Не удалось прочитать изображение')};img.src=url}
+const MAX_EDITOR_HISTORY=64*1024*1024;
+const edit={
+  tool:'pen',color:'#8dd9f6',size:5,undo:[],redo:[],
+  drawing:false,start:null,last:null,snapshot:null,crop:null,
+  cropBefore:null
+};
+function emptyCanvas(){
+  bc.fillStyle='#142a3d';bc.fillRect(0,0,base.width,base.height);
+  bc.fillStyle='#d2e9f5';bc.font='700 36px Segoe UI';bc.fillText('ISLAND LAB',60,115);
+  bc.font='22px Segoe UI';bc.fillStyle='#85afca';
+  bc.fillText('Загрузи изображение или сделай скриншот',60,165);
+  for(let i=0;i<13;i++){bc.strokeStyle='rgba(141,217,246,'+(i%3===0?.15:.07)+')';bc.beginPath();bc.moveTo(0,260+i*32);bc.lineTo(base.width,260+i*32);bc.stroke()}
+}
+function setCanvasSize(w,h){
+  // Keep original aspect ratio even when the image exceeds the safe
+  // browser-canvas size. Avoid warping 8K screenshots to a square.
+  w=Number.isFinite(w)?w:1080;h=Number.isFinite(h)?h:608;
+  const scale=Math.min(1,4096/Math.max(w,h,1));
+  w=Math.max(1,Math.round(w*scale));h=Math.max(1,Math.round(h*scale));
+  base.width=draw.width=w;base.height=draw.height=h;
+  $('.editor-frame').style.aspectRatio=w+'/'+h;
+  edit.undo=[];edit.redo=[];edit.crop=null;updateCropOutline();
+}
+function imageIn(img){
+  setCanvasSize(img.width||img.naturalWidth,img.height||img.naturalHeight);
+  bc.clearRect(0,0,base.width,base.height);bc.drawImage(img,0,0,base.width,base.height);
+  dc.clearRect(0,0,draw.width,draw.height);updateEditor();showTab('shots')
+}
+function loadImage(file){
+  if(!file||!file.type.startsWith('image/'))return;
+  const url=URL.createObjectURL(file),img=new Image();
+  img.onload=()=>{imageIn(img);URL.revokeObjectURL(url);toast('Изображение открыто')};
+  img.onerror=()=>{URL.revokeObjectURL(url);toast('Не удалось прочитать изображение')};
+  img.src=url
+}
 $('#imageFile').addEventListener('change',e=>loadImage(e.target.files?.[0]));
-document.addEventListener('paste',e=>{const item=[...(e.clipboardData?.items||[])].find(x=>x.type.startsWith('image/'));if(item){e.preventDefault();loadImage(item.getAsFile())}});
-document.addEventListener('keydown',e=>{if(e.key==='PrintScreen'){showTab('shots');toast('Windows делает снимок. Вставь его Ctrl+V в Island Lab.')}if(tab==='shots'&&expanded&&(e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();if(e.shiftKey)redo();else undo()}});
-$('#pasteHelp').addEventListener('click',async()=>{try{const items=await navigator.clipboard.read();for(const item of items){const type=item.types.find(x=>x.startsWith('image/'));if(type){loadImage(new File([await item.getType(type)],'clipboard.png',{type}));return}}toast('В буфере нет изображения — попробуй Ctrl+V')}catch{toast('Нажми Ctrl+V, чтобы вставить изображение')}});
-async function capture(){if(!navigator.mediaDevices?.getDisplayMedia){toast('Захват доступен только на HTTPS или localhost. Можно загрузить файл.');return}let stream;try{stream=await navigator.mediaDevices.getDisplayMedia({video:true,audio:false});const v=document.createElement('video');v.srcObject=stream;v.muted=true;await v.play();if(!v.videoWidth)await new Promise(resolve=>v.addEventListener('loadedmetadata',resolve,{once:true}));setCanvasSize(v.videoWidth,v.videoHeight);bc.drawImage(v,0,0,base.width,base.height);dc.clearRect(0,0,draw.width,draw.height);showTab('shots');toast('Скриншот готов к редактированию')}catch(e){toast(e.name==='NotAllowedError'?'Пользователь отменил захват':'Не удалось захватить экран: '+e.message)}finally{stream?.getTracks().forEach(t=>t.stop())}}
+document.addEventListener('paste',e=>{
+  const item=[...(e.clipboardData?.items||[])].find(x=>x.type.startsWith('image/'));
+  if(item){e.preventDefault();loadImage(item.getAsFile())}
+});
+document.addEventListener('keydown',e=>{
+  if(e.key==='PrintScreen'){
+    showTab('shots');
+    toast('Сделай снимок средствами Windows и вставь его Ctrl+V.')
+  }
+  if(tab==='shots'&&expanded&&(e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){
+    e.preventDefault();if(e.shiftKey)redo();else undo()
+  }
+});
+$('#pasteHelp').addEventListener('click',async()=>{
+  try{
+    const items=await navigator.clipboard.read();
+    for(const item of items){
+      const type=item.types.find(x=>x.startsWith('image/'));
+      if(type){loadImage(new File([await item.getType(type)],'clipboard.png',{type}));return}
+    }
+    toast('В буфере нет изображения — попробуй Ctrl+V')
+  }catch{toast('Нажми Ctrl+V, чтобы вставить изображение')}
+});
+async function capture(){
+  if(!navigator.mediaDevices?.getDisplayMedia){
+    toast('Захват доступен только на HTTPS или localhost. Можно загрузить файл.');return
+  }
+  let stream;
+  try{
+    stream=await navigator.mediaDevices.getDisplayMedia({video:true,audio:false});
+    const video=document.createElement('video');video.srcObject=stream;video.muted=true;
+    await video.play();
+    if(!video.videoWidth)await new Promise(resolve=>video.addEventListener('loadedmetadata',resolve,{once:true}));
+    setCanvasSize(video.videoWidth,video.videoHeight);
+    bc.drawImage(video,0,0,base.width,base.height);
+    dc.clearRect(0,0,draw.width,draw.height);
+    showTab('shots');toast('Скриншот готов к редактированию')
+  }catch(e){
+    toast(e.name==='NotAllowedError'?'Пользователь отменил захват':'Не удалось захватить экран: '+e.message)
+  }finally{stream?.getTracks().forEach(track=>track.stop())}
+}
 $('#captureScreen').addEventListener('click',capture);
-function canvasPos(e){const r=draw.getBoundingClientRect();return{x:(e.clientX-r.left)*draw.width/r.width,y:(e.clientY-r.top)*draw.height/r.height}}
-function pushUndo(){edit.undo.push(dc.getImageData(0,0,draw.width,draw.height));if(edit.undo.length>20)edit.undo.shift();edit.redo.length=0}
-function styleStroke(){dc.lineWidth=edit.tool==='marker'?edit.size*4:edit.size;dc.lineCap='round';dc.lineJoin='round';dc.strokeStyle=edit.color;dc.fillStyle=edit.color;dc.globalAlpha=edit.tool==='marker'?.32:1;dc.globalCompositeOperation=edit.tool==='eraser'?'destination-out':'source-over'}
+function canvasPos(e){
+  const r=draw.getBoundingClientRect();
+  return {x:(e.clientX-r.left)*draw.width/r.width,y:(e.clientY-r.top)*draw.height/r.height}
+}
+function cropRectFromPoints(a,b,width,height){
+  // Clamp both corners before normalizing. Returning null prevents
+  // zero-area selections from producing empty PNG exports.
+  const x1=Math.max(0,Math.min(width,Math.round(a.x)));
+  const x2=Math.max(0,Math.min(width,Math.round(b.x)));
+  const y1=Math.max(0,Math.min(height,Math.round(a.y)));
+  const y2=Math.max(0,Math.min(height,Math.round(b.y)));
+  const rect={x:Math.min(x1,x2),y:Math.min(y1,y2),w:Math.abs(x2-x1),h:Math.abs(y2-y1)};
+  return rect.w>=5&&rect.h>=5?rect:null
+}
+function updateCropOutline(){
+  const el=$('#cropOutline'),crop=edit.crop;
+  el.hidden=!crop;
+  if(!crop)return;
+  el.style.left=(crop.x/base.width*100)+'%';
+  el.style.top=(crop.y/base.height*100)+'%';
+  el.style.width=(crop.w/base.width*100)+'%';
+  el.style.height=(crop.h/base.height*100)+'%'
+}
+function editorState(pixels=true){
+  return {pixels:pixels?dc.getImageData(0,0,draw.width,draw.height):null,crop:edit.crop?{...edit.crop}:null}
+}
+function trimHistory(list){
+  // Prevent full-screen snapshots from consuming gigabytes of RAM.
+  let bytes=list.reduce((acc,entry)=>acc+(entry.pixels?.data?.byteLength||128),0);
+  while(list.length>1&&bytes>MAX_EDITOR_HISTORY){
+    const entry=list.shift();bytes-=entry.pixels?.data?.byteLength||128
+  }
+}
+function pushUndo(pixels=true){
+  const state=editorState(pixels);
+  edit.undo.push(state);trimHistory(edit.undo);edit.redo.length=0;
+  return state.pixels
+}
+function styleStroke(){
+  dc.lineWidth=edit.tool==='marker'?edit.size*4:edit.size;
+  dc.lineCap='round';dc.lineJoin='round';
+  dc.strokeStyle=edit.color;dc.fillStyle=edit.color;
+  dc.globalAlpha=edit.tool==='marker'?.32:1;
+  dc.globalCompositeOperation=edit.tool==='eraser'?'destination-out':'source-over'
+}
 function line(a,b){dc.beginPath();dc.moveTo(a.x,a.y);dc.lineTo(b.x,b.y);dc.stroke()}
-function arrow(a,b){line(a,b);const angle=Math.atan2(b.y-a.y,b.x-a.x),len=Math.max(13,edit.size*3);line(b,{x:b.x-len*Math.cos(angle-.48),y:b.y-len*Math.sin(angle-.48)});line(b,{x:b.x-len*Math.cos(angle+.48),y:b.y-len*Math.sin(angle+.48)})}
-function shape(a,b){dc.save();styleStroke();if(edit.tool==='arrow')arrow(a,b);if(edit.tool==='rect')dc.strokeRect(a.x,a.y,b.x-a.x,b.y-a.y);if(edit.tool==='ellipse'){dc.beginPath();dc.ellipse((a.x+b.x)/2,(a.y+b.y)/2,Math.max(1,Math.abs(a.x-b.x)/2),Math.max(1,Math.abs(a.y-b.y)/2),0,0,Math.PI*2);dc.stroke()}dc.restore()}
-draw.addEventListener('pointerdown',e=>{if(e.button!==0)return;const p=canvasPos(e);if(edit.tool==='text'){const txt=prompt('Текст на изображении');if(!txt)return;pushUndo();dc.save();styleStroke();dc.font='700 '+Math.max(22,edit.size*5)+'px Segoe UI';dc.fillText(txt,p.x,p.y,Math.max(10,draw.width-p.x));dc.restore();return}pushUndo();edit.drawing=true;edit.start=p;edit.last=p;edit.snapshot=dc.getImageData(0,0,draw.width,draw.height);draw.setPointerCapture(e.pointerId);if(['pen','marker','eraser'].includes(edit.tool)){dc.save();styleStroke();line(p,{x:p.x+.1,y:p.y+.1});dc.restore()}});
-draw.addEventListener('pointermove',e=>{if(!edit.drawing)return;const p=canvasPos(e);if(['pen','marker','eraser'].includes(edit.tool)){dc.save();styleStroke();line(edit.last,p);dc.restore()}else{dc.putImageData(edit.snapshot,0,0);shape(edit.start,p)}edit.last=p});
-function finishDrawing(){edit.drawing=false;edit.snapshot=null;updateEditor()}
-draw.addEventListener('pointerup',finishDrawing);draw.addEventListener('pointercancel',finishDrawing);
-$$('[data-tool]').forEach(b=>b.addEventListener('click',()=>{edit.tool=b.dataset.tool;$$('[data-tool]').forEach(el=>el.classList.toggle('active',el===b));updateEditor()}));
-$('#penColor').addEventListener('input',e=>edit.color=e.target.value);$('#penSize').addEventListener('input',e=>edit.size=+e.target.value);
-function undo(){if(!edit.undo.length)return;edit.redo.push(dc.getImageData(0,0,draw.width,draw.height));dc.putImageData(edit.undo.pop(),0,0);updateEditor()}
-function redo(){if(!edit.redo.length)return;edit.undo.push(dc.getImageData(0,0,draw.width,draw.height));dc.putImageData(edit.redo.pop(),0,0);updateEditor()}
-$('#undo').addEventListener('click',undo);$('#redo').addEventListener('click',redo);
-$('#clearEdits').addEventListener('click',()=>{pushUndo();dc.clearRect(0,0,draw.width,draw.height);updateEditor()});
-function updateEditor(){$('#editorStatus').textContent='Инструмент: '+({pen:'карандаш',marker:'маркер',arrow:'стрелка',rect:'прямоугольник',ellipse:'овал',text:'текст',eraser:'ластик'}[edit.tool])+' · '+draw.width+'×'+draw.height+' · Отмен: '+edit.undo.length}
-$('#saveShot').addEventListener('click',()=>{const out=document.createElement('canvas');out.width=base.width;out.height=base.height;const c=out.getContext('2d');c.drawImage(base,0,0);c.drawImage(draw,0,0);out.toBlob(blob=>{if(!blob)return toast('Не удалось сохранить PNG');const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='Island-Lab-'+Date.now()+'.png';a.click();setTimeout(()=>URL.revokeObjectURL(url),2000);toast('PNG сохранён')},'image/png')});
+function arrow(a,b){
+  line(a,b);const angle=Math.atan2(b.y-a.y,b.x-a.x),len=Math.max(13,edit.size*3);
+  line(b,{x:b.x-len*Math.cos(angle-.48),y:b.y-len*Math.sin(angle-.48)});
+  line(b,{x:b.x-len*Math.cos(angle+.48),y:b.y-len*Math.sin(angle+.48)})
+}
+function shape(a,b){
+  dc.save();styleStroke();
+  if(edit.tool==='arrow')arrow(a,b);
+  if(edit.tool==='rect')dc.strokeRect(a.x,a.y,b.x-a.x,b.y-a.y);
+  if(edit.tool==='ellipse'){
+    dc.beginPath();
+    dc.ellipse((a.x+b.x)/2,(a.y+b.y)/2,Math.max(1,Math.abs(a.x-b.x)/2),Math.max(1,Math.abs(a.y-b.y)/2),0,0,Math.PI*2);
+    dc.stroke()
+  }
+  dc.restore()
+}
+draw.addEventListener('pointerdown',e=>{
+  if(e.button!==0)return;
+  const p=canvasPos(e);
+  if(edit.tool==='text'){
+    const txt=prompt('Текст на изображении');if(!txt)return;
+    pushUndo();dc.save();styleStroke();dc.font='700 '+Math.max(22,edit.size*5)+'px Segoe UI';
+    dc.fillText(txt,p.x,p.y,Math.max(10,draw.width-p.x));dc.restore();updateEditor();return
+  }
+  edit.snapshot=pushUndo(edit.tool!=='crop');
+  edit.cropBefore=edit.crop?{...edit.crop}:null;
+  edit.drawing=true;edit.start=p;edit.last=p;
+  draw.setPointerCapture(e.pointerId);
+  if(['pen','marker','eraser'].includes(edit.tool)){
+    dc.save();styleStroke();line(p,{x:p.x+.1,y:p.y+.1});dc.restore()
+  }
+});
+draw.addEventListener('pointermove',e=>{
+  if(!edit.drawing)return;
+  const p=canvasPos(e);
+  if(edit.tool==='crop'){
+    edit.crop=cropRectFromPoints(edit.start,p,draw.width,draw.height);updateCropOutline()
+  }else if(['pen','marker','eraser'].includes(edit.tool)){
+    dc.save();styleStroke();line(edit.last,p);dc.restore()
+  }else{
+    dc.putImageData(edit.snapshot,0,0);shape(edit.start,p)
+  }
+  edit.last=p
+});
+function finishDrawing(e){
+  if(!edit.drawing)return;
+  if(edit.tool==='crop'){
+    edit.crop=cropRectFromPoints(edit.start,canvasPos(e),draw.width,draw.height)||edit.cropBefore;
+    updateCropOutline()
+  }
+  edit.drawing=false;edit.snapshot=null;edit.cropBefore=null;updateEditor()
+}
+draw.addEventListener('pointerup',finishDrawing);
+draw.addEventListener('pointercancel',finishDrawing);
+$$('[data-tool]').forEach(button=>button.addEventListener('click',()=>{
+  edit.tool=button.dataset.tool;
+  $$('[data-tool]').forEach(el=>el.classList.toggle('active',el===button));
+  updateEditor()
+}));
+$('#penColor').addEventListener('input',e=>edit.color=e.target.value);
+$('#penSize').addEventListener('input',e=>edit.size=+e.target.value);
+function applyEditorState(state){
+  if(state.pixels)dc.putImageData(state.pixels,0,0);
+  edit.crop=state.crop;updateCropOutline();updateEditor()
+}
+function undo(){
+  if(!edit.undo.length)return;
+  const prior=edit.undo.pop();
+  edit.redo.push(editorState(!!prior.pixels));trimHistory(edit.redo);
+  applyEditorState(prior)
+}
+function redo(){
+  if(!edit.redo.length)return;
+  const next=edit.redo.pop();
+  edit.undo.push(editorState(!!next.pixels));trimHistory(edit.undo);
+  applyEditorState(next)
+}
+$('#undo').addEventListener('click',undo);
+$('#redo').addEventListener('click',redo);
+$('#clearEdits').addEventListener('click',()=>{
+  pushUndo();dc.clearRect(0,0,draw.width,draw.height);updateEditor()
+});
+$('#removeCrop').addEventListener('click',()=>{
+  if(!edit.crop)return;
+  pushUndo(false);edit.crop=null;updateCropOutline();updateEditor()
+});
+function updateEditor(){
+  const toolNames={pen:'карандаш',marker:'маркер',arrow:'стрелка',rect:'прямоугольник',ellipse:'овал',crop:'обрезка',text:'текст',eraser:'ластик'};
+  const region=edit.crop?' · Обрезка: '+edit.crop.w+'×'+edit.crop.h:'';
+  $('#editorStatus').textContent='Инструмент: '+toolNames[edit.tool]+' · '+draw.width+'×'+draw.height+region+' · Отмен: '+edit.undo.length;
+  $('#removeCrop').hidden=!edit.crop
+}
+$('#saveShot').addEventListener('click',()=>{
+  const crop=edit.crop||{x:0,y:0,w:base.width,h:base.height};
+  const out=document.createElement('canvas');out.width=crop.w;out.height=crop.h;
+  const ctx=out.getContext('2d');
+  for(const layer of [base,draw])ctx.drawImage(layer,crop.x,crop.y,crop.w,crop.h,0,0,crop.w,crop.h);
+  out.toBlob(blob=>{
+    if(!blob)return toast('Не удалось сохранить PNG');
+    const url=URL.createObjectURL(blob),a=document.createElement('a');
+    a.href=url;a.download='Island-Lab-'+Date.now()+'.png';a.click();
+    setTimeout(()=>URL.revokeObjectURL(url),2000);toast('PNG сохранён')
+  },'image/png')
+});
 
 /* Notes — localStorage, no external account. */
 let notes=[];let selectedNote=null;let notesSaveTimer=null;
