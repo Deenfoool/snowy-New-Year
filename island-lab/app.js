@@ -643,17 +643,59 @@ function updateEditor(){
   $('#editorStatus').textContent='Инструмент: '+toolNames[edit.tool]+' · '+draw.width+'×'+draw.height+region+' · Отмен: '+edit.undo.length;
   $('#removeCrop').hidden=!edit.crop
 }
+function downloadPng(blob){
+  const url=URL.createObjectURL(blob),link=document.createElement('a');
+  link.href=url;link.download='Island-Lab-'+Date.now()+'.png';link.click();
+  setTimeout(()=>URL.revokeObjectURL(url),2000)
+}
+async function savePngBlob(blob){
+  if(nativeShell){
+    try{
+      const pngData=await new Promise((resolve,reject)=>{
+        const reader=new FileReader();
+        reader.onload=()=>resolve(reader.result);
+        reader.onerror=()=>reject(reader.error||Error('Не удалось прочитать PNG'));
+        reader.readAsDataURL(blob)
+      });
+      const savedPath=await nativeApi.core.invoke('save_screenshot_native',{pngData});
+      $('#editorStatus').textContent='Снимок сохранён в '+savedPath;
+      toast('PNG сохранён в Изображения / Island Lab');
+      return
+    }catch(error){
+      console.warn('Island Lab: native screenshot save failed',error);
+      downloadPng(blob);
+      toast('Не удалось записать в папку. PNG скачан браузером.');
+      return
+    }
+  }
+  downloadPng(blob);
+  toast('PNG сохранён через браузер')
+}
+let savingScreenshot=false;
 $('#saveShot').addEventListener('click',()=>{
+  if(savingScreenshot)return;
+  savingScreenshot=true;
   const crop=edit.crop||{x:0,y:0,w:base.width,h:base.height};
   const out=document.createElement('canvas');out.width=crop.w;out.height=crop.h;
   const ctx=out.getContext('2d');
   for(const layer of [base,draw])ctx.drawImage(layer,crop.x,crop.y,crop.w,crop.h,0,0,crop.w,crop.h);
-  out.toBlob(blob=>{
-    if(!blob)return toast('Не удалось сохранить PNG');
-    const url=URL.createObjectURL(blob),a=document.createElement('a');
-    a.href=url;a.download='Island-Lab-'+Date.now()+'.png';a.click();
-    setTimeout(()=>URL.revokeObjectURL(url),2000);toast('PNG сохранён')
+  out.toBlob(async blob=>{
+    try{
+      if(!blob){toast('Не удалось сохранить PNG');return}
+      await savePngBlob(blob);
+    }finally{savingScreenshot=false}
   },'image/png')
+});
+$('#openShotsFolder').addEventListener('click',async()=>{
+  if(!nativeShell)return;
+  const button=$('#openShotsFolder');button.disabled=true;
+  try{
+    await nativeApi.core.invoke('open_screenshot_folder_native');
+    toast('Папка снимков открыта в Проводнике')
+  }catch(error){
+    console.warn('Island Lab: cannot open screenshot folder',error);
+    toast('Папка недоступна: '+String(error).slice(0,90))
+  }finally{button.disabled=false}
 });
 
 /* Notes — localStorage, no external account. */
