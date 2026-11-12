@@ -247,7 +247,14 @@ html.motion-reduced *,html.motion-reduced *::before,html.motion-reduced *::after
   transform:translateX(-50%) translateZ(0);
   pointer-events:none;display:block
 }
-.island-shell>.island.collapsed+#waveCanvas{display:none}
+.island-shell>#waveCanvas{
+  opacity:1;visibility:visible;
+  transition:opacity 190ms ease,visibility 0s;
+}
+.island-shell>.island.collapsed+#waveCanvas{
+  opacity:0;visibility:hidden;
+  transition:opacity 180ms ease,visibility 0s linear 180ms;
+}
 
 /* A restrained playback-status breath; never present it as captured BPM. */
 .island.music-playing .status-dot{
