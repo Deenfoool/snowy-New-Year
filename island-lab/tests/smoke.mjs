@@ -197,3 +197,22 @@ test('WASAPI capture is gated by a native-only explicit consent toggle', () => {
   assert.match(rust,/fn analyze\(/);
   assert.match(rust,/fn silence_produces_zero_spectrum\(/);
 });
+
+test('native desktop layering has a guarded 20-second rollback, not WorkerW injection',()=>{
+  const overlay=readFileSync(join(dir,'desktop-mode.js'),'utf8');
+  const rust=readFileSync(join(dir,'native','src-tauri','src','desktop.rs'),'utf8');
+  const main=readFileSync(join(dir,'native','src-tauri','src','main.rs'),'utf8');
+  const staging=readFileSync(join(dir,'native','scripts','prepare.mjs'),'utf8');
+  assert.doesNotThrow(()=>new Script(overlay,{filename:'desktop-mode.js'}));
+  for(const id of ['desktopModeStatus','desktopModeTry','desktopModeKeep','desktopModeCancel'])
+    assert.match(html,new RegExp('id="'+id+'"'));
+  assert.match(html,/src="\.\/desktop-mode\.js"/);
+  assert.match(staging,/desktop-mode\.js/);
+  assert.match(main,/desktop::desktop_mode_try/);
+  assert.match(main,/desktop::desktop_mode_cancel/);
+  assert.match(rust,/TRIAL_SECONDS: u64 = 20/);
+  assert.match(rust,/set_always_on_bottom\(true\)/);
+  assert.match(rust,/set_always_on_bottom\(false\)/);
+  assert.match(rust,/genuine_desktop_host: false/);
+  assert.doesNotMatch(rust,/SetParent|FindWindowW|SendMessageW/);
+});
