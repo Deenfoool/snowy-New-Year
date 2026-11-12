@@ -6,7 +6,7 @@
 
 **Снегопад, сугробы и снеговики прямо на рабочем столе Windows.**
 
-[Скачать для Windows x64](https://github.com/Deenfoool/snowy-New-Year/releases/download/v0.1.1/Snowy-New-Year-v0.1.1-windows-x64.zip) · [Все релизы](https://github.com/Deenfoool/snowy-New-Year/releases)
+[Скачать для Windows x64](https://github.com/Deenfoool/snowy-New-Year/releases/download/v0.1.1/Snowy-New-Year-v0.1.1-windows-x64.zip) · [Все релизы](https://github.com/Deenfoool/snowy-New-Year/releases) · [Портфолио автора](https://deenfoool.github.io/portfolio/)
 
 Windows 10 / 11 · Портативный ZIP · Интерфейс на русском
 
