@@ -9,13 +9,13 @@ const here=dirname(fileURLToPath(import.meta.url));
 const code=readFileSync(join(here,'..','audio-visualizer.js'),'utf8');
 const tick=async()=>{for(let i=0;i<8;i++)await Promise.resolve()};
 
-function mock(native=true){
+function mock(native=true, handleInvoke=async()=>true){
   const events=[],commands=[],listeners=new Map(),unsubs=[];
   const domListeners={};
   const dom={hidden:false,addEventListener:(name,fn)=>{domListeners[name]=fn}};
   const target={
     __TAURI__:native?{
-      core:{invoke:async(command,args)=>{commands.push({command,args});return true}},
+      core:{invoke:async(command,args)=>{commands.push({command,args});return handleInvoke(command,args)}},
       event:{listen:async(name,handler)=>{
         listeners.set(name,handler);
         return ()=>{listeners.delete(name);unsubs.push(name)}
@@ -96,4 +96,38 @@ test('WASAPI error stops capture and publishes a status',async()=>{
   assert.equal(m.manager.active,false);
   assert.equal(m.commands.at(-1).command,'audio_capture_stop');
   assert.equal(m.events.some(e=>e.type==='island:audio-capture-error'),true);
+});
+
+test('disabling WASAPI during a slow native start eventually stops the stream',async()=>{
+  let unblock;
+  const gate=new Promise(resolve=>{unblock=resolve});
+  const m=mock(true,command=>command==='audio_capture_start'?gate:Promise.resolve(true));
+  const starting=m.manager.start();
+  await tick();
+  assert.equal(m.manager.starting,true);
+  const stopping=m.manager.stop();
+  await tick();
+  unblock(true);
+  assert.equal(await starting,false);
+  assert.equal(await stopping,true);
+  assert.equal(m.manager.active,false);
+  assert.equal(m.manager.starting,false);
+  assert.equal(m.commands.at(-1)?.command,'audio_capture_stop');
+  assert.equal(m.listeners.size,0);
+});
+
+test('hiding the window during startup cancels capture before it can become active',async()=>{
+  let unblock;
+  const gate=new Promise(resolve=>{unblock=resolve});
+  const m=mock(true,command=>command==='audio_capture_start'?gate:Promise.resolve(true));
+  const starting=m.manager.start();
+  await tick();
+  m.dom.hidden=true;
+  m.domListeners.visibilitychange();
+  await tick();
+  unblock(true);
+  assert.equal(await starting,false);
+  await tick();
+  assert.equal(m.manager.active,false);
+  assert.equal(m.commands.at(-1)?.command,'audio_capture_stop');
 });
