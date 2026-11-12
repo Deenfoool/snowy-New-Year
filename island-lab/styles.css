@@ -23,3 +23,8 @@
 .offset-button{width:25px;height:24px;border:1px solid var(--border);border-radius:7px;background:#22394d;color:var(--accent)}
 .offset-button:hover{background:rgba(var(--accent-rgb),.15)}
 @media(max-width:480px){.lyrics-lookup-fields{grid-template-columns:1fr}.lyrics-search{padding:10px}}
+
+/* Image annotation crop selection is separate from both source and drawing layers. */
+.crop-outline{position:absolute;border:2px dashed #f3faff;box-shadow:0 0 0 5000px rgba(5,12,23,.54),0 0 0 1px rgba(0,0,0,.6) inset;pointer-events:none;z-index:2;border-radius:1px}
+.crop-outline[hidden]{display:none!important}
+.editor-footer{align-items:center}.editor-footer #removeCrop{padding:6px 9px}
