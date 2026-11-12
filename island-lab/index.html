@@ -70,6 +70,19 @@
                     <div id="lyricFuture" class="lyric future">—</div>
                     <span class="drum-top"></span><span class="drum-bottom"></span>
                   </div>
+                  <div class="lyrics-lookup">
+                    <div class="lyrics-lookup-fields">
+                      <input id="lyricsTrack" type="text" maxlength="160" placeholder="Название песни" autocomplete="off" aria-label="Название песни для поиска текста">
+                      <input id="lyricsArtist" type="text" maxlength="160" placeholder="Исполнитель" autocomplete="off" aria-label="Исполнитель для поиска текста">
+                    </div>
+                    <button type="button" class="small-action lyrics-search" id="findLyrics">⌕ Найти слова</button>
+                  </div>
+                  <div class="lyrics-offset">
+                    <span>Сдвиг текста</span>
+                    <button type="button" class="offset-button" id="lyricsEarlier" title="Показывать текст раньше">−</button>
+                    <output id="lyricsOffset">0.0 с</output>
+                    <button type="button" class="offset-button" id="lyricsLater" title="Показывать текст позже">＋</button>
+                  </div>
                   <div class="lyrics-footer"><span class="muted" id="lyricStatus">Встроенный демо-текст</span><label class="small-action">Загрузить LRC <input id="lyricsFile" type="file" accept=".lrc,text/plain" hidden></label></div>
                 </article>
                 <article class="card weather-card">
