@@ -507,52 +507,140 @@ function updatePlayer(){
   updateLyrics()
 }
 
-/* Procedural translucent waves extend DOWN from the actual lower window boundary. */
-const wave=$('#waveCanvas'),wc=wave.getContext('2d');let waveW=0,waveH=0,lastWave=0,waveRaf=0;
-function resizeWave(){const r=island.getBoundingClientRect(),dpr=Math.min(devicePixelRatio||1,2);waveW=Math.max(1,r.width);waveH=39;wave.width=Math.round(waveW*dpr);wave.height=Math.round(waveH*dpr);wc.setTransform(dpr,0,0,dpr,0,0)}
-function clearWave(){wc.clearRect(0,0,waveW,waveH)}
-function drawWave(now=0){
-  if(!expanded)return;
-  if(Math.abs(island.getBoundingClientRect().width-waveW)>2)resizeWave();
-  clearWave();
-  const system=music.mode==='system';
-  const output=system&&nativeSystemAudioActive()?audioCapture.frame:null;
-  const powered=options.waveEnabled&&music.playing&&!options.reducedMotion
-    &&(!system||Boolean(output));
-  let level=0;
-  if(powered&&system&&output){
-    level=output.rms;
-  }else if(powered&&music.analyser){
-    music.analyser.getByteFrequencyData(music.fft);
-    level=music.fft.reduce((a,b)=>a+b,0)/(music.fft.length*255)
+/* Audio-reactive bottom silhouette. Each band and the master envelope are
+ * smoothed independently, so audio packets arriving at 18 Hz produce
+ * continuous 60-Hz curves without random/fabricated beats.
+ */
+const wave=$('#waveCanvas'),wc=wave.getContext('2d');
+let waveW=0,waveH=0,lastWave=0,waveRaf=0,lastProgress=0;
+const waveDynamics={
+  height:0,velocity:0,
+  bands:Array(16).fill(0),lastAt:0
+};
+function resizeWave(){
+  const width=island.getBoundingClientRect().width;
+  const dpr=Math.min(window.devicePixelRatio||1,2);
+  waveW=Math.max(1,width);waveH=39;
+  const pixelsW=Math.round(waveW*dpr),pixelsH=Math.round(waveH*dpr);
+  if(wave.width!==pixelsW||wave.height!==pixelsH){
+    wave.width=pixelsW;wave.height=pixelsH;
+    wc.setTransform(dpr,0,0,dpr,0,0)
   }
-  const power=powered?Math.min(1,level*(system?4.0:2.7))*(options.wavePower/100):0;
-  // When the output is silent, the bottom silhouette becomes truly flat.
-  const base=powered&&level>0.015?3:0;
-  const points=[];
-  for(let x=0;x<=waveW;x+=3){
-    const t=x/waveW,taper=Math.pow(Math.sin(Math.PI*t),.7);
-    const detail=system
-      ?(output?.bands?.[Math.min(15,Math.floor(t*16))]||0)
-      :((music.fft?.[Math.min(music.fft.length-1,Math.floor(t*32))]||0)/255);
-    const oscillate=Math.sin(t*32+now*.009)*.54
-      +Math.sin(t*59-now*.012)*.22+Math.sin(t*110+now*.016)*.11;
-    const drop=base+taper*power*(10+22*detail+10*oscillate);
-    points.push([x,Math.max(0,drop)]);
-  }
-  points.push([waveW,0]);
-  const fill=getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()||'#8dd9f6';
-  const grad=wc.createLinearGradient(0,0,0,37);
-  grad.addColorStop(0,'#182b3e');grad.addColorStop(.55,'#263f55');grad.addColorStop(1,fill);
-  wc.beginPath();wc.moveTo(0,0);
-  for(const [x,y] of points)wc.lineTo(x,y);
-  wc.closePath();wc.fillStyle=grad;wc.fill();
-  if(power>0){wc.strokeStyle='rgba(192,235,252,.56)';wc.lineWidth=.7;wc.stroke()}
 }
-function frame(now){waveRaf=0;if(!expanded||!music.playing||options.reducedMotion||!options.waveEnabled||(music.mode==='system'&&!nativeSystemAudioActive())){drawWave();return}if(now-lastWave>32){drawWave(now);if(music.mode==='demo'&&currentTime()>=duration()){music.offset=0;music.start=performance.now()/1000;music.nextBeat=music.ctx.currentTime;music.beat=0}updatePlayer();lastWave=now}startWaveLoop()}
-function startWaveLoop(){if(waveRaf||!expanded||!music.playing
-    ||(music.mode==='system'&&!nativeSystemAudioActive())
-    ||options.reducedMotion||!options.waveEnabled||document.hidden)return;waveRaf=requestAnimationFrame(frame)}
+function clearWave(){wc.clearRect(0,0,waveW,waveH)}
+function waveHasTail(){
+  return waveDynamics.height>.008||Math.abs(waveDynamics.velocity)>.018||
+    waveDynamics.bands.some(level=>level>.01)
+}
+function waveSignal(){
+  const system=music.mode==='system';
+  if(!options.waveEnabled||!music.playing||
+    (system&&!nativeSystemAudioActive()))return{rms:0,bands:null};
+  if(system){
+    const frame=audioCapture.frame;
+    return{rms:Math.max(0,Math.min(1,frame.rms*3)),
+      bands:frame.bands}
+  }
+  if(!music.analyser||!music.fft)return{rms:0,bands:null};
+  music.analyser.getByteFrequencyData(music.fft);
+  const bands=Array.from({length:16},(_,i)=>{
+    const first=Math.floor(i*3),last=Math.min(music.fft.length,first+3);
+    let sum=0;
+    for(let j=first;j<last;j++)sum+=music.fft[j];
+    return last>first?sum/((last-first)*255):0
+  });
+  const rms=bands.reduce((total,level)=>total+level,0)/bands.length;
+  return{rms:Math.min(1,rms*2.7),bands}
+}
+function drawWave(now=performance.now()){
+  if(!expanded)return;
+  if(Math.abs(island.getBoundingClientRect().width-waveW)>1.5)resizeWave();
+  const delta=waveDynamics.lastAt?Math.min(.05,Math.max(.008,(now-waveDynamics.lastAt)/1000)):1/60;
+  waveDynamics.lastAt=now;
+  const allowed=options.waveEnabled&&!options.reducedMotion&&
+    motion?.motionAllowed(options.reducedMotion)!==false;
+  const signal=allowed?waveSignal():{rms:0,bands:null};
+  const target=allowed?Math.min(1,signal.rms)*(options.wavePower/100):0;
+  if(!allowed){
+    waveDynamics.height=0;waveDynamics.velocity=0;waveDynamics.bands.fill(0)
+  }else{
+    const step=motion?.spring(waveDynamics.height,waveDynamics.velocity,
+      target,delta,3.65,.83)||{x:target,v:0};
+    waveDynamics.height=Math.max(0,Math.min(1,step.x));
+    waveDynamics.velocity=step.v;
+    for(let i=0;i<16;i++){
+      const wanted=(signal.bands?.[i]||0);
+      const response=wanted>waveDynamics.bands[i]?21:8.5;
+      waveDynamics.bands[i]=motion?.smooth(
+        waveDynamics.bands[i],wanted,delta,response)||wanted
+    }
+    if(target<.001&&waveDynamics.height<.008&&Math.abs(waveDynamics.velocity)<.018){
+      waveDynamics.height=0;waveDynamics.velocity=0;
+      if(waveDynamics.bands.every(band=>band<.01))waveDynamics.bands.fill(0)
+    }
+  }
+  clearWave();
+  if(!waveHasTail())return;
+  const amplitude=waveDynamics.height;
+  const fill=getComputedStyle(document.documentElement)
+    .getPropertyValue('--accent').trim()||'#8dd9f6';
+  const gradient=wc.createLinearGradient(0,0,0,waveH);
+  gradient.addColorStop(0,'#182b3e');
+  gradient.addColorStop(.65,'#263f55');
+  gradient.addColorStop(1,fill);
+  wc.beginPath();wc.moveTo(0,0);
+  for(let x=0;x<=waveW;x+=3){
+    const t=x/waveW;
+    const fade=Math.pow(Math.sin(Math.PI*t),.72);
+    const frequency=t*15;
+    const index=Math.min(14,Math.floor(frequency));
+    const mix=frequency-index;
+    const energy=waveDynamics.bands[index]*(1-mix)
+      +waveDynamics.bands[index+1]*mix;
+    // Harmonic detail describes *only* the captured energy. Silence is flat.
+    const ripple=.5+.26*Math.sin(t*27+now*.007)
+      +.16*Math.sin(t*61-now*.009);
+    const depth=fade*amplitude*(8+27*energy+8*ripple);
+    wc.lineTo(x,Math.max(0,Math.min(waveH-2,depth)))
+  }
+  wc.lineTo(waveW,0);wc.closePath();
+  wc.fillStyle=gradient;wc.fill();
+  if(amplitude>.04){
+    wc.lineWidth=.7;
+    wc.strokeStyle='rgba(192,235,252,.52)';
+    wc.stroke()
+  }
+  // When pause switches playback off, retain a short physical release tail.
+  if(!music.playing&&waveHasTail())startWaveLoop()
+}
+function frame(now){
+  waveRaf=0;
+  if(!expanded||document.hidden||options.reducedMotion||!options.waveEnabled){
+    waveDynamics.height=0;waveDynamics.velocity=0;
+    waveDynamics.bands.fill(0);clearWave();return
+  }
+  if(now-lastWave>=14){
+    drawWave(now);
+    if(music.playing){
+      if(music.mode==='demo'&&currentTime()>=duration()){
+        music.offset=0;music.start=performance.now()/1000;
+        music.nextBeat=music.ctx.currentTime;music.beat=0
+      }
+      if(now-lastProgress>=90){
+        updatePlayer();lastProgress=now
+      }
+    }
+    lastWave=now
+  }
+  startWaveLoop()
+}
+function startWaveLoop(){
+  if(waveRaf||!expanded||document.hidden||options.reducedMotion||
+     !options.waveEnabled)return;
+  const hasSource=music.playing&&(music.mode!=='system'||nativeSystemAudioActive());
+  if(!hasSource&&!waveHasTail())return;
+  waveRaf=requestAnimationFrame(frame)
+}
 
 /* Live weather is an explicit user action; browser-only Open-Meteo fetch. */
 function updateWeather({temp,wind,description,city,live}){const t=(temp>0?'+':temp<0?'−':'')+Math.round(Math.abs(temp))+'°';const symbol=temp<=0?'❄':description.includes('Дожд')?'☂':'☁';$('#weatherTemp').textContent=t;$('#miniTemperature').textContent=t;$('#weatherIcon').textContent=symbol;$('#miniWeatherIcon').textContent=symbol;$('#weatherText').textContent=description;$('#weatherCity').textContent=city;$('#weatherWind').textContent='Ветер '+Math.round(wind/3.6*10)/10+' м/с';$('#weatherSource').textContent=live?'LIVE':'ДЕМО';$('.weather-demo-dot').textContent=live?'LIVE':'DEMO';$('#panelState').textContent=live?'Погода обновлена':'Демо-режим'}
