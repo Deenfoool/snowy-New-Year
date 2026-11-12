@@ -61,6 +61,10 @@
                     <button type="button" class="icon-button" data-player="next" aria-label="Следующий">⏭</button>
                   </div>
                   <label class="small-action">＋ Добавить музыку <input id="musicFile" type="file" accept="audio/*" multiple hidden></label>
+                  <div class="system-player-control native-only">
+                    <label class="switch-row"><span>Плеер Windows <small>Управлять активной системной музыкой</small></span><input type="checkbox" id="systemPlayerToggle"><i></i></label>
+                    <span class="muted system-player-status" id="systemPlayerStatus">Не подключён</span>
+                  </div>
                 </article>
                 <article class="card lyrics-card">
                   <div class="card-eyebrow">СЛОВА ПЕСНИ <span class="right-muted">LRC</span></div>
