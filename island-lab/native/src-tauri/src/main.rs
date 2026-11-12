@@ -2,6 +2,7 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 mod media;
+mod audio;
 
 use tauri::{LogicalSize, PhysicalPosition, State, WebviewWindow};
 
@@ -106,11 +107,14 @@ fn quit_island_lab(app: tauri::AppHandle) {
 fn main() {
     tauri::Builder::default()
         .manage(WindowPositionState::default())
+        .manage(audio::AudioCaptureState::default())
         .invoke_handler(tauri::generate_handler![
             set_island_expanded,
             quit_island_lab,
             media::system_media_snapshot,
-            media::system_media_action
+            media::system_media_action,
+            audio::audio_capture_start,
+            audio::audio_capture_stop
         ])
         .run(tauri::generate_context!())
         .expect("Island Lab native host could not start");
