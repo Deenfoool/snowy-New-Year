@@ -248,3 +248,16 @@ html.motion-reduced *,html.motion-reduced *::before,html.motion-reduced *::after
   pointer-events:none;display:block
 }
 .island-shell>.island.collapsed+#waveCanvas{display:none}
+
+/* A restrained playback-status breath; never present it as captured BPM. */
+.island.music-playing .status-dot{
+  animation:mini-playback-breath 2.8s ease-in-out infinite;
+}
+@keyframes mini-playback-breath{
+  0%,100%{opacity:.78;box-shadow:0 0 6px rgba(114,217,173,.38);transform:scale(.95)}
+  50%{opacity:1;box-shadow:0 0 11px rgba(114,217,173,.7);transform:scale(1.12)}
+}
+html.motion-reduced .island.music-playing .status-dot{animation:none}
+@media(prefers-reduced-motion:reduce){
+  .island.music-playing .status-dot{animation:none}
+}
