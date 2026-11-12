@@ -214,7 +214,9 @@ test('window capsule clips content but downward waveform escapes as a sibling',(
   assert.match(html, /<\/div>\s*<canvas id="waveCanvas" aria-hidden="true"><\/canvas>\s*<\/section>/);
   assert.match(css,/\.island\{overflow:hidden\}/);
   assert.match(css,/\.island-shell>#waveCanvas\{/);
-  assert.match(css,/\.island-shell>\.island\.collapsed\+#waveCanvas\{display:none\}/);
+  assert.match(css,/\.island-shell>\.island\.collapsed\+#waveCanvas\{[\s\S]*?opacity:0;visibility:hidden/);
+  assert.match(css,/transition:opacity 180ms ease,visibility 0s linear 180ms/);
+  assert.match(app,/cancelAnimationFrame\(waveRaf\)/);
   assert.match(app,/--wave-width/);
   assert.match(app,/borderObserver\.observe\(island\)/);
 });
