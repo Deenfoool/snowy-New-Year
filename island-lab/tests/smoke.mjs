@@ -174,3 +174,26 @@ test('native player source is packaged with an explicit Windows-only switch', ()
   assert.match(media,/TryTogglePlayPauseAsync/);
   assert.match(js,/function disableSystemMusic\(/);
 });
+
+test('WASAPI capture is gated by a native-only explicit consent toggle', () => {
+  const visual=readFileSync(join(dir,'audio-visualizer.js'),'utf8');
+  const rust=readFileSync(join(dir,'native','src-tauri','src','audio.rs'),'utf8');
+  const nativeMain=readFileSync(join(dir,'native','src-tauri','src','main.rs'),'utf8');
+  const stage=readFileSync(join(dir,'native','scripts','prepare.mjs'),'utf8');
+  const manifest=readFileSync(join(dir,'native','src-tauri','Cargo.toml'),'utf8');
+  assert.doesNotThrow(()=>new Script(visual,{filename:'audio-visualizer.js'}));
+  assert.match(html,/id="systemWaveToggle"/);
+  assert.match(html,/Звуковые волны|Волны из звука Windows/);
+  assert.match(html,/src="\.\/audio-visualizer\.js"/);
+  assert.match(stage,/audio-visualizer\.js/);
+  assert.match(js,/const audioCapture=window\.IslandAudioCapture/);
+  assert.match(js,/function nativeSystemAudioActive\(/);
+  assert.match(js,/audioCapture\.start\(\)/);
+  assert.match(nativeMain,/audio::audio_capture_start/);
+  assert.match(nativeMain,/audio::audio_capture_stop/);
+  assert.match(manifest,/wasapi = "0\.27"/);
+  assert.match(rust,/Direction::Render/);
+  assert.match(rust,/Direction::Capture/);
+  assert.match(rust,/fn analyze\(/);
+  assert.match(rust,/fn silence_produces_zero_spectrum\(/);
+});
