@@ -75,3 +75,26 @@ After launching the compiled EXE, expand the capsule, open **Настройки 
 The quit button is intentionally exposed in settings because a frameless window has no standard close control. `Alt+F4` should remain a fallback.
 
 The Tauri CSP explicitly allows `ipc:` and `http://ipc.localhost` for the native bridge while restricting remote requests to LRCLIB and Open-Meteo. The Windows workflow is at `.github/workflows/island-lab-windows.yml` and attempts an unsigned EXE build, if GitHub Actions is enabled for this repository.
+
+## Windows audio-reactive wave (WASAPI, experimental)
+
+`src-tauri/src/audio.rs` uses the safe Rust [wasapi-rs](https://github.com/HEnquist/wasapi-rs) library. It creates one COM-initialized capture thread **only when manually enabled** from the expanded music card, by selecting **«Плеер Windows»**, then **«Волны из звука Windows»**.
+
+- The endpoint is the default **output** device, captured in *shared-mode loopback* (WASAPI). The microphone is not opened. This captures the **whole Windows output mix**, including game and notification sounds, not just the media session app.
+- The native worker requests 48 kHz/stereo/float32 with automatic conversion, downsamples internally to 8 kHz and computes 16 normalized spectral bands with a Hann window and Goertzel detectors. Raw audio is never persisted, logged, sent to JavaScript, or uploaded. The UI receives only `bands[16]` and an RMS level.
+- Stream updates are bounded to approximately 18 per second, event-driven, and cease when the toggle is disabled or the WebView becomes hidden. The native worker is joined, with a short 120 ms endpoint-wait timeout so shutdown can respond.
+- The wave follows the 16 bands when a compatible media session reports playing. Silence gradually makes the lower edge flat; there is no fabricated beat.
+- Unsupported device formats, missing default playback device, or device disconnection report an error and turn capture off. Re-enable after reconnecting a device.
+- **Limitations:** not selective per-process audio capture yet; no FFT library is needed (the DSP is self-contained), no persistent recording, system-mix levels do not guarantee synchronization exclusively with the displayed track. Performance and Windows compatibility remain **unverified** until a local compile and smoke test.
+
+Windows commands:
+```powershell
+cd island-lab/native
+npm install
+npm test
+npm run dev
+```
+
+Manual scenario: play a track in Spotify or a browser, enable **Плеер Windows** → **Волны из звука Windows**, then vary the volume, pause the song, stop the toggle, switch the default audio device, and minimize the window. Check **Настройки → Проверка приложения**, and Task Manager CPU/GPU use.
+
+Source references: Microsoft [WASAPI loopback](https://learn.microsoft.com/en-us/windows/win32/coreaudio/loopback-recording) and [wasapi-rs](https://github.com/HEnquist/wasapi-rs).
