@@ -219,6 +219,7 @@ mod platform {
         let mut history = VecDeque::<f32>::with_capacity(FFT_WINDOW);
         let mut frame_number: usize = 0;
         let mut last_emit = Instant::now();
+        let mut last_pcm_at = Instant::now();
 
         let run = (|| -> Result<(), String> {
             while !stop.load(Ordering::Acquire) {
@@ -243,6 +244,9 @@ mod platform {
                     let (frames, _) = capture
                         .read_from_device(&mut data)
                         .map_err(|e| e.to_string())?;
+                    if frames > 0 {
+                        last_pcm_at = Instant::now();
+                    }
 
                     for sample in data[..frames as usize * 8].chunks_exact(8) {
                         // Stereo float32 LE; data returned by WASAPI is already
@@ -260,6 +264,11 @@ mod platform {
                 }
 
                 if last_emit.elapsed() >= Duration::from_millis(55) {
+                    // On idle endpoints WASAPI can stop emitting packets.
+                    // Do not endlessly reuse the last nonzero spectrum.
+                    if last_pcm_at.elapsed() >= Duration::from_millis(300) {
+                        history.clear();
+                    }
                     let mut samples = [0.0; FFT_WINDOW];
                     if history.len() == FFT_WINDOW {
                         for (dst, src) in samples.iter_mut().zip(history.iter()) {
