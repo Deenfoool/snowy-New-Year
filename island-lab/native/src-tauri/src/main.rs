@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 mod media;
 mod audio;
 mod desktop;
+mod screenshots;
 
 use tauri::{LogicalSize, PhysicalPosition, State, WebviewWindow};
 
@@ -120,7 +121,9 @@ fn main() {
             desktop::desktop_mode_status,
             desktop::desktop_mode_try,
             desktop::desktop_mode_keep,
-            desktop::desktop_mode_cancel
+            desktop::desktop_mode_cancel,
+            screenshots::save_screenshot_native,
+            screenshots::open_screenshot_folder_native
         ])
         .run(tauri::generate_context!())
         .expect("Island Lab native host could not start");
