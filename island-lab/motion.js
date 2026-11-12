@@ -102,6 +102,22 @@
     },t+95)
   }
 
+  function animateValue(element,value,{enabled=true,direction=1}={}){
+    if(!element)return;
+    const next=String(value??'');
+    if(element.textContent===next)return;
+    element.getAnimations?.().forEach(animation=>animation.cancel());
+    element.textContent=next;
+    if(!enabled||!motionAllowed()||typeof element.animate!=='function')return;
+    element.animate([
+      {opacity:.18,transform:'translate3d(0,'+(direction*9)+'px,0)',filter:'blur(2px)'},
+      {opacity:1,transform:'translate3d(0,0,0)',filter:'blur(0px)'}
+    ],{
+      duration:Math.round(timings().reveal*.78),
+      easing:'cubic-bezier(.18,1,.3,1)'
+    })
+  }
+
   function onceTransition(element,property,maxMs){
     if(!element)return Promise.resolve();
     if(!motionAllowed()||maxMs<=0)return Promise.resolve();
@@ -123,7 +139,7 @@
 
   window.IslandMotion={
     presets,setPreset,timings,motionAllowed,smooth,spring,
-    updateLyrics,clearLyrics,onceTransition,
+    updateLyrics,animateValue,clearLyrics,onceTransition,
     get preset(){return preset}
   };
 })();
