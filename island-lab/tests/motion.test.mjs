@@ -225,3 +225,73 @@ test('screen redraws are throttled without losing the 60fps waveform budget',()=
   assert.match(app,/if\(now-lastProgress>=90\)/);
   assert.match(app,/if\(!hasSource&&!waveHasTail\(\)\)return/);
 });
+
+test('center expand button does not trigger the parent expand handler twice',()=>{
+  assert.match(app,/\$\('#expandTarget'\)\.addEventListener\('click',event=>\{/);
+  assert.match(app,/event\.stopPropagation\(\)/);
+  assert.match(app,/event\.target\.closest\('#expandTarget'\)/);
+});
+
+test('failed Windows viewport expansion leaves the visible capsule collapsed',async()=>{
+  const section=(a,b)=>{
+    const start=app.indexOf(a),end=app.indexOf(b,start);
+    assert.ok(start>=0&&end>start);
+    return app.slice(start,end)
+  };
+  const native=section('let nativeResizeQueue=','const KEY=');
+  const commit=section('function commitExpanded(','let expandRequest=');
+  const toggle=section('async function setExpanded(','function showTab(');
+  const classes=new Set(['collapsed']);
+  const messages=[];
+  const mocks={
+    nativeShell:true,
+    nativeApi:{core:{invoke:async()=>{throw Error('simulated resize failure')}}},
+    island:{
+      classList:{
+        contains:key=>classes.has(key),
+        add:key=>classes.add(key),
+        remove:key=>classes.delete(key),
+        toggle:(key,enabled)=>enabled?classes.add(key):classes.delete(key)
+      },
+      style:{setProperty(){}}
+    },
+    panel:{inert:true},motion:{motionAllowed:()=>true,timings:()=>({morph:560}),
+      onceTransition:()=>Promise.resolve(),clearLyrics(){}},
+    options:{reducedMotion:false},
+    requestAnimationFrame:()=>1,setTimeout:()=>1,clearTimeout(){},
+    resizeWave(){},drawWave(){},startWaveLoop(){},
+    syncTabIndicator(){},refreshIslandHeight(){},clearWave(){},
+    toast(message){messages.push(message)},
+    console:{warn(){}}
+  };
+  const source=`
+    let nativeBridgeStatus='',expanded=false,morphSequence=0,morphTimer=0;
+    ${native}
+    ${commit}
+    let expandRequest=0;
+    ${toggle}
+    return {setExpanded,getState:()=>({expanded,collapsed:island.classList.contains('collapsed')})}
+  `;
+  const adapter=runInNewContext(
+    'new Function(...Object.keys(inputs),source)(...Object.values(inputs))',
+    {inputs:mocks,source}
+  );
+  await adapter.setExpanded(true);
+  assert.equal(adapter.getState().expanded,false);
+  assert.equal(adapter.getState().collapsed,true);
+  assert.match(messages[0],/Не удалось раскрыть окно/);
+});
+
+test('cover art transitions only when changing a track and while expanded',()=>{
+  assert.match(app,/function animateCoverChange\(/);
+  assert.match(app,/if\(!expanded\|\|tab!=='home'/);
+  assert.match(app,/artwork\.animate\(\[/);
+  assert.ok([...app.matchAll(/animateCoverChange\(\)/g)].length>=4);
+  assert.match(css,/\.island\.music-playing \.status-dot/);
+  assert.match(css,/html\.motion-reduced \.island\.music-playing \.status-dot\{animation:none\}/);
+});
+
+test('large full-panel CSS blur and canvas will-change are not used',()=>{
+  assert.doesNotMatch(css,/opacity:\.5;filter:blur/);
+  assert.doesNotMatch(css,/will-change:contents/);
+});
