@@ -102,7 +102,7 @@ function commitExpanded(next){
   const cameFromPanel=!next&&panel.contains(focused);
   collapsedBar.inert=next;
   panel.inert=!next;
-  if(cameFromMini)$('#tab-home')?.focus({preventScroll:true});
+  if(cameFromMini)$('.tab.active')?.focus({preventScroll:true});
   if(cameFromPanel)$('#expandTarget')?.focus({preventScroll:true});
   if(next){
     refreshIslandHeight();
