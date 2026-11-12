@@ -126,10 +126,10 @@ html[data-motion="calm"]{--motion-morph:700ms;--motion-reveal:520ms;--motion-tab
 /* Individual content items follow the capsule; never animate layout-affecting
    size on every row. The overall shell handles geometry. */
 .island .panel-header,.island .tabs,.island .panel-body{
-  transition:opacity var(--motion-reveal) ease,filter var(--motion-reveal) ease
+  transition:opacity var(--motion-reveal) ease
 }
 .island.collapsed .panel-header,.island.collapsed .tabs,.island.collapsed .panel-body{
-  opacity:.5;filter:blur(2px)
+  opacity:.5
 }
 /* Shared sliding nav highlight. The real buttons retain keyboard focus. */
 .tabs{position:relative}
@@ -162,7 +162,7 @@ html[data-motion="calm"]{--motion-morph:700ms;--motion-reveal:520ms;--motion-tab
   animation:tab-content-enter var(--motion-tabs) var(--motion-decelerate) both
 }
 @keyframes tab-content-leave{
-  to{opacity:0;transform:translate3d(0,-11px,0);filter:blur(2px)}
+  to{opacity:0;transform:translate3d(0,-11px,0)}
 }
 /* Touch/press feedback should feel elastic, but clicks remain precise. */
 .mini-btn,.icon-button,.tool,.tab,.small-action,.secondary-action,
@@ -196,7 +196,7 @@ html[data-motion="calm"]{--motion-morph:700ms;--motion-reveal:520ms;--motion-tab
 .lyric.animate{animation:none}
 /* Keep the bottom edge canvas optically joined to the panel and disable
    expensive pointer hit testing during transition. */
-#waveCanvas{transform:translateZ(0);will-change:contents}
+#waveCanvas{transform:translateZ(0)}
 .island.is-morphing .expanded-panel{overflow:hidden}
 @media(hover:hover){
   .mini-btn:hover,.icon-button:hover,.tool:hover{transform:translate3d(0,-1px,0)}
