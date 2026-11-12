@@ -78,3 +78,29 @@ test('online lyrics and crop controls are represented in the UI', () => {
   assert.match(html, /data-tool="crop"/);
   assert.match(js, /Lrclib-Client/);
 });
+
+test('native window shell uses independent Tauri project and same frontend', () => {
+  const config = JSON.parse(readFileSync(join(dir, 'native', 'src-tauri', 'tauri.conf.json'), 'utf8'));
+  const manifest = readFileSync(join(dir, 'native', 'src-tauri', 'Cargo.toml'), 'utf8');
+  const capability = JSON.parse(readFileSync(join(dir, 'native', 'src-tauri', 'capabilities', 'default.json'), 'utf8'));
+  assert.equal(config.build.frontendDist, '../dist');
+  assert.equal(config.app.windows[0].transparent, true);
+  assert.equal(config.app.windows[0].decorations, false);
+  assert.equal(config.app.windows[0].alwaysOnTop, false);
+  assert.equal(config.bundle.active, false);
+  assert.match(manifest, /name = "island-lab-native"/);
+  assert.ok(capability.permissions.includes('core:window:allow-start-dragging'));
+  assert.match(js, /set_island_expanded/);
+  assert.match(css, /html\.native-shell/);
+});
+
+test('notes autosave does not use a singular selector as a collection', () => {
+  assert.doesNotMatch(js, /\$\('\.note-item'\)\.forEach/);
+  assert.match(js, /\$\$\('\.note-item'\)\.forEach/);
+});
+
+test('animation loops are gated by visibility and effect settings', () => {
+  assert.match(js, /function updateSnowLoop\(/);
+  assert.match(js, /document\.hidden/);
+  assert.match(js, /function startWaveLoop\(/);
+});
