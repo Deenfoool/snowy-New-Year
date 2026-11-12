@@ -104,3 +104,38 @@ test('animation loops are gated by visibility and effect settings', () => {
   assert.match(js, /document\.hidden/);
   assert.match(js, /function startWaveLoop\(/);
 });
+
+test('native security policy explicitly permits IPC but not arbitrary remote hosts', () => {
+  const config = JSON.parse(readFileSync(join(dir, 'native', 'src-tauri', 'tauri.conf.json'), 'utf8'));
+  const csp = config.app.security.csp;
+  assert.match(csp, /connect-src '[^']+' ipc: http:\/\/ipc\.localhost/);
+  assert.match(csp, /https:\/\/lrclib\.net/);
+  assert.doesNotMatch(csp, /\* https?:/);
+});
+
+test('native window exposes a quit command and keeps dragged capsule anchored', () => {
+  const rust = readFileSync(join(dir, 'native', 'src-tauri', 'src', 'main.rs'), 'utf8');
+  assert.match(rust, /fn quit_island_lab\(/);
+  assert.match(rust, /fn set_island_expanded\(/);
+  assert.match(rust, /old_position\.x/);
+  assert.match(rust, /clamp_inside_screen\(/);
+  assert.match(js, /quit_island_lab/);
+});
+
+test('PC diagnostics are present and avoid sensitive user content', () => {
+  for (const id of ['runDiagnostics','copyDiagnostics','quitNative','diagnosticsOutput']) {
+    assert.match(html, new RegExp('id="' + id + '"'));
+  }
+  const start=js.indexOf('function diagnosticsText()');
+  const end=js.indexOf("$('#runDiagnostics')",start);
+  assert.ok(start>=0&&end>start);
+  const body=js.slice(start,end);
+  assert.doesNotMatch(body, /notes\[|noteBody|imageCanvas\.toDataURL|weatherCity|trackName/);
+  assert.match(body, /Ошибки JavaScript/);
+});
+
+test('LRCLIB throttling guards repeated requests', () => {
+  assert.match(js, /lyricsRetryUntil/);
+  assert.match(js, /response\.headers\.get\('Retry-After'\)/);
+  assert.match(js, /Date\.now\(\)<lyricsRetryUntil/);
+});
