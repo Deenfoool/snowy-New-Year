@@ -99,7 +99,12 @@ function commitExpanded(next){
     requestAnimationFrame(()=>{resizeWave();drawWave();startWaveLoop();syncTabIndicator()});
   }else{
     island.style.setProperty('--island-height','49px');
-    clearWave();
+    // Fade the last rendered silhouette with CSS while the capsule shrinks.
+    // Stop RAF immediately: a moving but invisible wave wastes GPU cycles.
+    if(typeof waveRaf!=='undefined'&&waveRaf){
+      cancelAnimationFrame(waveRaf);
+      waveRaf=0
+    }
     motion?.clearLyrics();
   }
   const duration=motion?.motionAllowed(options.reducedMotion)
@@ -108,6 +113,7 @@ function commitExpanded(next){
     if(token!==morphSequence)return;
     island.classList.remove('is-morphing');
     if(next)refreshIslandHeight();
+    else clearWave();
   },duration+60);
 }
 let expandRequest=0;
