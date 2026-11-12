@@ -27,9 +27,9 @@ function persist(){try{localStorage.setItem(KEY,JSON.stringify(options))}catch{}
 function toast(message){const el=$('#toast');el.textContent=message;el.classList.add('visible');clearTimeout(toast.timer);toast.timer=setTimeout(()=>el.classList.remove('visible'),3400)}
 function rgb(hex){const h=hex.replace('#','');const v=parseInt(h,16);return [(v>>16)&255,(v>>8)&255,v&255].join(',')}
 function applyOptions(){document.documentElement.style.setProperty('--accent',options.accent);document.documentElement.style.setProperty('--accent-rgb',rgb(options.accent));$('#accentColor').value=options.accent;$('#wavePower').value=options.wavePower;$('#waveValue').textContent=options.wavePower+'%';$('#waveToggle').checked=options.waveEnabled;$('#reducedMotion').checked=options.reducedMotion;$('#backgroundSnow').checked=options.backgroundSnow;$('#snowToggle').checked=options.snow;$('#capsToggle').checked=options.caps;$('#snowmenToggle').checked=options.snowmen;$('#snowIntensity').value=options.snowIntensity;$('#snowPercent').textContent=options.snowIntensity+'%';$('#weatherInput').value=options.weatherCity||'';
-  window.IslandMotion?.setPreset(options.motionStyle);
+  const selectedMotion=window.IslandMotion?.setPreset(options.motionStyle)||options.motionStyle;
   document.documentElement.classList.toggle('motion-reduced',Boolean(options.reducedMotion));
-  $('#motionStyle').value=options.motionStyle;
+  $('#motionStyle').value=selectedMotion;
   $('#lyricsOffset').textContent=(options.lyricsOffset>0?'+':'')+options.lyricsOffset.toFixed(1)+' с';if(options.offset&&!nativeShell)placeIsland(options.offset.left,options.offset.top)}
 function setOption(k,v){
   options[k]=v;persist();applyOptions();
@@ -170,6 +170,20 @@ window.addEventListener('resize',()=>{
   requestAnimationFrame(()=>{refreshIslandHeight();resizeWave();syncTabIndicator()})
 });
 nav.addEventListener('scroll',syncTabIndicator,{passive:true});
+// Content may grow when the online weather/lyrics load or notes are edited.
+// A ResizeObserver keeps the shell fitted, but never retargets the height
+// during the spring morph (which would otherwise cause layout thrashing).
+if(typeof ResizeObserver!=='undefined'){
+  let heightRaf=0;
+  const observer=new ResizeObserver(()=>{
+    if(!expanded||island.classList.contains('is-morphing')||heightRaf)return;
+    heightRaf=requestAnimationFrame(()=>{
+      heightRaf=0;
+      if(expanded&&!island.classList.contains('is-morphing'))refreshIslandHeight()
+    })
+  });
+  observer.observe(panel)
+}
 
 /* Music engine: demo synthesizer and user-loaded files feed the SAME analyser. */
 const tracks=[
