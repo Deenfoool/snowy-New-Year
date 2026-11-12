@@ -76,17 +76,26 @@ const tracks=[
  {name:'Blue Midnight',artist:'Island Lab — Demo',duration:48,notes:[220,261.63,329.63,392,369.99,329.63,261.63,196],lyrics:[[0,'За окном мерцает свет'],[6,'Небо медленно темнеет'],[12,'Слышен ровный ритм'],[18,'И волна уходит вниз'],[24,'Всё становится спокойней'],[30,'Новый день совсем близко'],[36,'Пусть эта мелодия звучит'],[42,'Пока город ещё спит']]}
 ];
 const audio=$('#audio');
-const music={demoIndex:0,mode:'demo',playing:false,ctx:null,analyser:null,source:null,bus:null,fft:null,timer:null,beat:0,nextBeat:0,start:0,offset:0,lyrics:tracks[0].lyrics.map(([at,text])=>({at,text})),lyricIndex:-1,files:[],fileIndex:0,lyricsRequest:0};
+const music={demoIndex:0,mode:'demo',playing:false,ctx:null,analyser:null,source:null,bus:null,fft:null,timer:null,beat:0,nextBeat:0,start:0,offset:0,lyrics:tracks[0].lyrics.map(([at,text])=>({at,text})),lyricIndex:-1,files:[],fileIndex:0,lyricsRequest:0,systemPosition:0,systemDuration:0,systemAt:0,systemTrackKey:''};
 function activeTrack(){return tracks[music.demoIndex]}
-function duration(){return music.mode==='file'?(Number.isFinite(audio.duration)?audio.duration:0):activeTrack().duration}
-function currentTime(){return music.mode==='file'?(audio.currentTime||0):(music.playing?(performance.now()/1000-music.start):music.offset)}
+function duration(){
+  if(music.mode==='system')return music.systemDuration;
+  return music.mode==='file'?(Number.isFinite(audio.duration)?audio.duration:0):activeTrack().duration
+}
+function currentTime(){
+  if(music.mode==='system'){
+    const elapsed=music.playing?(performance.now()-music.systemAt)/1000:0;
+    return Math.max(0,Math.min(duration()||Infinity,music.systemPosition+Math.max(0,elapsed)))
+  }
+  return music.mode==='file'?(audio.currentTime||0):(music.playing?(performance.now()/1000-music.start):music.offset)
+}
 function formatTime(sec){sec=Math.max(0,Math.floor(sec||0));return Math.floor(sec/60)+':'+String(sec%60).padStart(2,'0')}
 function audioInit(){if(music.ctx)return true;const C=window.AudioContext||window.webkitAudioContext;if(!C){toast('Web Audio недоступен');return false}music.ctx=new C();music.bus=music.ctx.createGain();music.bus.gain.value=.65;music.analyser=music.ctx.createAnalyser();music.analyser.fftSize=256;music.analyser.smoothingTimeConstant=.72;music.fft=new Uint8Array(music.analyser.frequencyBinCount);music.bus.connect(music.analyser);music.analyser.connect(music.ctx.destination);return true}
 function note(freq,time,length=.26,volume=.075,type='sine'){const ctx=music.ctx,o=ctx.createOscillator(),g=ctx.createGain();o.type=type;o.frequency.setValueAtTime(freq,time);g.gain.setValueAtTime(.0001,time);g.gain.exponentialRampToValueAtTime(volume,time+.012);g.gain.exponentialRampToValueAtTime(.0001,time+length);o.connect(g);g.connect(music.bus);o.start(time);o.stop(time+length+.01)}
 function schedule(){if(!music.playing||music.mode!=='demo'||!music.ctx)return;while(music.nextBeat<music.ctx.currentTime+.13){const i=music.beat%8;const n=activeTrack().notes;note(n[i],music.nextBeat,.28,.09,i%2?'triangle':'sine');if(i%2===0)note(n[(i+3)%8]/2,music.nextBeat,.38,.12,'triangle');if(i%4===0)note(64,music.nextBeat,.18,.11,'sine');music.nextBeat+=.35;music.beat++}}
-async function play(){if(!audioInit())return;try{await music.ctx.resume();if(music.mode==='file'){if(!music.source){music.source=music.ctx.createMediaElementSource(audio);music.source.connect(music.bus)}await audio.play()}else{music.start=performance.now()/1000-music.offset;music.beat=Math.floor(music.offset/.35);music.nextBeat=music.ctx.currentTime;clearInterval(music.timer);music.timer=setInterval(schedule,75);schedule()}music.playing=true;updatePlayer();startWaveLoop()}catch(e){toast('Не удалось воспроизвести: '+e.message)}}
-function pause(){if(music.mode==='file')audio.pause();else music.offset=currentTime();music.playing=false;clearInterval(music.timer);updatePlayer();drawWave()}
-function toggle(){music.playing?pause():play()}
+async function play(){if(music.mode==='system'){await controlSystemMusic('play');return}if(!audioInit())return;try{await music.ctx.resume();if(music.mode==='file'){if(!music.source){music.source=music.ctx.createMediaElementSource(audio);music.source.connect(music.bus)}await audio.play()}else{music.start=performance.now()/1000-music.offset;music.beat=Math.floor(music.offset/.35);music.nextBeat=music.ctx.currentTime;clearInterval(music.timer);music.timer=setInterval(schedule,75);schedule()}music.playing=true;updatePlayer();startWaveLoop()}catch(e){toast('Не удалось воспроизвести: '+e.message)}}
+function pause(){if(music.mode==='system'){controlSystemMusic('pause');return}if(music.mode==='file')audio.pause();else music.offset=currentTime();music.playing=false;clearInterval(music.timer);updatePlayer();drawWave()}
+function toggle(){if(music.mode==='system'){controlSystemMusic('toggle');return}music.playing?pause():play()}
 function loadDemo(index){pause();music.mode='demo';music.demoIndex=(index+tracks.length)%tracks.length;music.offset=0;music.lyricIndex=-1;music.lyricsRequest++;music.lyrics=activeTrack().lyrics.map(([at,text])=>({at,text}));$('#trackName').textContent=activeTrack().name;$('#trackArtist').textContent=activeTrack().artist;$('#lyricsTrack').value=activeTrack().name;$('#lyricsArtist').value=activeTrack().artist;$('#lyricStatus').textContent='Встроенный демо-текст';$('#queueCount').textContent='DEMO '+(music.demoIndex+1)+'/'+tracks.length;updatePlayer()}
 function parseLocalTrack(filename){
   const base=filename.replace(/\.[^.]+$/,'');
@@ -112,6 +121,7 @@ async function useFileTrack(index,shouldPlay){
   if(shouldPlay)await play();
 }
 function changeTrack(delta){
+  if(music.mode==='system'){controlSystemMusic(delta>0?'next':'previous');return}
   const wasPlaying=music.playing;
   if(music.mode==='file'){
     if(music.files.length>1)useFileTrack(music.fileIndex+delta,wasPlaying);
@@ -122,13 +132,20 @@ function changeTrack(delta){
   loadDemo(music.demoIndex+delta);
   if(wasPlaying)play()
 }
-function seek(time){time=Math.max(0,Math.min(duration()||0,time));if(music.mode==='file')audio.currentTime=time;else{music.offset=time;if(music.playing){music.start=performance.now()/1000-time;music.beat=Math.floor(time/.35);music.nextBeat=music.ctx.currentTime}}updatePlayer()}
+function seek(time){
+  time=Math.max(0,Math.min(duration()||0,time));
+  if(music.mode==='system'){controlSystemMusic('seek',time);return}
+  if(music.mode==='file')audio.currentTime=time;
+  else{music.offset=time;if(music.playing){music.start=performance.now()/1000-time;music.beat=Math.floor(time/.35);music.nextBeat=music.ctx.currentTime}}
+  updatePlayer()
+}
 $$('[data-player]').forEach(el=>el.addEventListener('click',e=>{e.stopPropagation();const a=el.dataset.player;if(a==='toggle')toggle();else changeTrack(a==='next'?1:-1)}));
 $('#seek').addEventListener('input',e=>seek(+e.target.value/100*duration()));
 $('#musicFile').addEventListener('change',async e=>{
   const files=Array.from(e.target.files||[])
     .filter(file=>file.type.startsWith('audio/')).slice(0,50);
   if(!files.length)return;
+  if(music.mode==='system')disableSystemMusic();
   pause();
   for(const item of music.files)URL.revokeObjectURL(item.url);
   music.files=files.map(file=>({name:file.name,url:URL.createObjectURL(file)}));
@@ -220,15 +237,88 @@ function shiftLyrics(delta){
 }
 $('#lyricsEarlier').addEventListener('click',()=>shiftLyrics(-0.5));
 $('#lyricsLater').addEventListener('click',()=>shiftLyrics(0.5));
+/* The system player is an explicit native-only opt-in.
+ * The Web Audio analyser never receives audio from other programs; while
+ * controlling an external session, the wave remains flat until WASAPI exists.
+ */
+const systemMedia=window.IslandSystemMedia;
+const systemSwitch=$('#systemPlayerToggle');
+const systemStatus=$('#systemPlayerStatus');
+function disableSystemMusic(){
+  systemMedia?.disable();
+  systemSwitch.checked=false;
+  systemStatus.textContent='Не подключён';
+  if(music.mode==='system'){
+    music.mode='demo';
+    music.playing=false;
+    music.systemPosition=0;music.systemDuration=0;music.systemTrackKey='';
+    loadDemo(music.demoIndex);
+  }
+}
+async function controlSystemMusic(action,seconds=null){
+  if(music.mode!=='system'||!systemMedia?.enabled)return;
+  const ok=await systemMedia.control(action,seconds);
+  if(!ok)toast('Проигрыватель Windows не принял команду');
+  systemMedia.refresh();
+}
+function showSystemSnapshot(snapshot,error){
+  if(music.mode!=='system')return;
+  if(error){
+    systemStatus.textContent='Недоступно: '+String(error).slice(0,88);
+    return
+  }
+  if(!snapshot){
+    systemStatus.textContent='Нет активного совместимого плеера';
+    music.playing=false;music.systemPosition=0;music.systemDuration=0;
+    $('#trackName').textContent='Ожидание музыки Windows';
+    $('#trackArtist').textContent='Запусти совместимый проигрыватель';
+    $('#queueCount').textContent='WINDOWS';
+    updatePlayer();return
+  }
+  const key=JSON.stringify([snapshot.title,snapshot.artist,snapshot.sourceApp]);
+  if(key!==music.systemTrackKey){
+    music.systemTrackKey=key;
+    music.lyricsRequest++;music.lyrics=[];music.lyricIndex=-1;
+    $('#trackName').textContent=snapshot.title||'Без названия';
+    $('#trackArtist').textContent=snapshot.artist||'Неизвестный исполнитель';
+    $('#lyricsTrack').value=snapshot.title||'';
+    $('#lyricsArtist').value=snapshot.artist||'';
+    $('#lyricStatus').textContent='Найди текст через LRCLIB';
+    $('#lyricPresent').textContent='Текст пока не загружен';
+    $('#lyricPast').textContent='—';$('#lyricFuture').textContent='—';
+  }
+  music.playing=Boolean(snapshot.playing);
+  music.systemDuration=Number(snapshot.durationSeconds)||0;
+  music.systemPosition=Number(snapshot.positionSeconds)||0;
+  music.systemAt=performance.now();
+  systemStatus.textContent=snapshot.sourceApp||'Windows Media Sessions';
+  $('#queueCount').textContent='WINDOWS';
+  updatePlayer();
+}
+systemSwitch.addEventListener('change',()=>{
+  if(!systemSwitch.checked){disableSystemMusic();return}
+  if(!nativeShell||!systemMedia?.available||!systemMedia.enable()){
+    systemSwitch.checked=false;toast('Системный проигрыватель доступен только в Windows-версии');return
+  }
+  pause(); // stop only Island Lab's own demo or local playback
+  music.mode='system';music.playing=false;music.systemTrackKey='';
+  music.systemPosition=0;music.systemDuration=0;
+  systemStatus.textContent='Подключение к Windows…';
+  showSystemSnapshot(null,null);
+});
+window.addEventListener('island:system-media',event=>{
+  if(music.mode!=='system')return;
+  showSystemSnapshot(event.detail.snapshot,event.detail.error)
+});
 function updatePlayer(){const pos=currentTime(),len=duration();$('#timeNow').textContent=formatTime(pos);$('#timeEnd').textContent=formatTime(len);$('#seek').value=len?Math.min(100,pos/len*100):0;$$('[data-player=toggle]').forEach(el=>{el.textContent=music.playing?'Ⅱ':'▶';el.setAttribute('aria-label',music.playing?'Пауза':'Воспроизвести')});updateLyrics()}
 
 /* Procedural translucent waves extend DOWN from the actual lower window boundary. */
 const wave=$('#waveCanvas'),wc=wave.getContext('2d');let waveW=0,waveH=0,lastWave=0,waveRaf=0;
 function resizeWave(){const r=island.getBoundingClientRect(),dpr=Math.min(devicePixelRatio||1,2);waveW=Math.max(1,r.width);waveH=39;wave.width=Math.round(waveW*dpr);wave.height=Math.round(waveH*dpr);wc.setTransform(dpr,0,0,dpr,0,0)}
 function clearWave(){wc.clearRect(0,0,waveW,waveH)}
-function drawWave(now=0){if(!expanded)return;if(Math.abs(island.getBoundingClientRect().width-waveW)>2)resizeWave();clearWave();const powered=options.waveEnabled&&music.playing&&!options.reducedMotion;const level=powered&&music.analyser?(music.analyser.getByteFrequencyData(music.fft),music.fft.reduce((a,b)=>a+b,0)/(music.fft.length*255)):0;const power=powered?Math.min(1,level*2.7)*(options.wavePower/100):0;const base=powered?3:0;const points=[];for(let x=0;x<=waveW;x+=3){const t=x/waveW;const taper=Math.pow(Math.sin(Math.PI*t),.7);const bin=music.fft?.[Math.min(music.fft.length-1,Math.floor(t*32))]||0;const detail=bin/255;const oscillate=Math.sin(t*32+now*.009)*.54+Math.sin(t*59-now*.012)*.22+Math.sin(t*110+now*.016)*.11;const drop=base+taper*power*(10+22*detail+10*oscillate);points.push([x,Math.max(0,drop)])}points.push([waveW,0]);const fill=getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()||'#8dd9f6';const grad=wc.createLinearGradient(0,0,0,37);grad.addColorStop(0,'#182b3e');grad.addColorStop(.55,'#263f55');grad.addColorStop(1,fill);wc.beginPath();wc.moveTo(0,0);for(const [x,y] of points)wc.lineTo(x,y);wc.closePath();wc.fillStyle=grad;wc.fill();if(power>0){wc.strokeStyle='rgba(192,235,252,.56)';wc.lineWidth=.7;wc.stroke()}}
+function drawWave(now=0){if(!expanded)return;if(Math.abs(island.getBoundingClientRect().width-waveW)>2)resizeWave();clearWave();const powered=options.waveEnabled&&music.playing&&music.mode!=='system'&&!options.reducedMotion;const level=powered&&music.analyser?(music.analyser.getByteFrequencyData(music.fft),music.fft.reduce((a,b)=>a+b,0)/(music.fft.length*255)):0;const power=powered?Math.min(1,level*2.7)*(options.wavePower/100):0;const base=powered?3:0;const points=[];for(let x=0;x<=waveW;x+=3){const t=x/waveW;const taper=Math.pow(Math.sin(Math.PI*t),.7);const bin=music.fft?.[Math.min(music.fft.length-1,Math.floor(t*32))]||0;const detail=bin/255;const oscillate=Math.sin(t*32+now*.009)*.54+Math.sin(t*59-now*.012)*.22+Math.sin(t*110+now*.016)*.11;const drop=base+taper*power*(10+22*detail+10*oscillate);points.push([x,Math.max(0,drop)])}points.push([waveW,0]);const fill=getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()||'#8dd9f6';const grad=wc.createLinearGradient(0,0,0,37);grad.addColorStop(0,'#182b3e');grad.addColorStop(.55,'#263f55');grad.addColorStop(1,fill);wc.beginPath();wc.moveTo(0,0);for(const [x,y] of points)wc.lineTo(x,y);wc.closePath();wc.fillStyle=grad;wc.fill();if(power>0){wc.strokeStyle='rgba(192,235,252,.56)';wc.lineWidth=.7;wc.stroke()}}
 function frame(now){waveRaf=0;if(!expanded||!music.playing||options.reducedMotion||!options.waveEnabled){drawWave();return}if(now-lastWave>32){drawWave(now);if(music.mode==='demo'&&currentTime()>=duration()){music.offset=0;music.start=performance.now()/1000;music.nextBeat=music.ctx.currentTime;music.beat=0}updatePlayer();lastWave=now}startWaveLoop()}
-function startWaveLoop(){if(waveRaf||!expanded||!music.playing||options.reducedMotion||!options.waveEnabled||document.hidden)return;waveRaf=requestAnimationFrame(frame)}
+function startWaveLoop(){if(waveRaf||!expanded||!music.playing||music.mode==='system'||options.reducedMotion||!options.waveEnabled||document.hidden)return;waveRaf=requestAnimationFrame(frame)}
 
 /* Live weather is an explicit user action; browser-only Open-Meteo fetch. */
 function updateWeather({temp,wind,description,city,live}){const t=(temp>0?'+':temp<0?'−':'')+Math.round(Math.abs(temp))+'°';const symbol=temp<=0?'❄':description.includes('Дожд')?'☂':'☁';$('#weatherTemp').textContent=t;$('#miniTemperature').textContent=t;$('#weatherIcon').textContent=symbol;$('#miniWeatherIcon').textContent=symbol;$('#weatherText').textContent=description;$('#weatherCity').textContent=city;$('#weatherWind').textContent='Ветер '+Math.round(wind/3.6*10)/10+' м/с';$('#weatherSource').textContent=live?'LIVE':'ДЕМО';$('.weather-demo-dot').textContent=live?'LIVE':'DEMO';$('#panelState').textContent=live?'Погода обновлена':'Демо-режим'}
