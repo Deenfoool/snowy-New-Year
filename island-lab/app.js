@@ -1,6 +1,6 @@
 /* Island Lab: self-contained browser experiment, independent from Snowy New Year. */
 'use strict';
-const $=s=>document.querySelector(s), $=s=>[...document.querySelectorAll(s)];
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 // The same frontend is used in a browser and in the optional Tauri/WebView2
 // host. Browser mode never requests native privileges.
 const nativeApi=window.__TAURI__;
@@ -407,7 +407,7 @@ if(!notes.length)notes=[{id:Date.now(),title:'Первая заметка',body:
 selectedNote=notes[0].id;
 function storeNotes(){try{localStorage.setItem(NOTES,JSON.stringify(notes));$('#noteSaved').textContent='Сохранено локально'}catch{$('#noteSaved').textContent='Ошибка сохранения'}}
 function renderNotes(){const list=$('#notesList');list.replaceChildren();for(const note of notes){const b=document.createElement('button');b.type='button';b.className='note-item'+(note.id===selectedNote?' active':'');b.textContent=note.title||'Без названия';b.addEventListener('click',()=>{selectedNote=note.id;renderNotes()});list.append(b)}const n=notes.find(x=>x.id===selectedNote);$('#noteTitle').value=n?.title||'';$('#noteBody').value=n?.body||'';$('#deleteNote').disabled=notes.length===1}
-function saveNote(){const n=notes.find(x=>x.id===selectedNote);if(!n)return;n.title=$('#noteTitle').value;n.body=$('#noteBody').value;$('#noteSaved').textContent='Сохранение…';clearTimeout(notesSaveTimer);notesSaveTimer=setTimeout(()=>{storeNotes();$('.note-item').forEach((button,index)=>{const note=notes[index];if(note)button.textContent=note.title||'Без названия'})},370)}
+function saveNote(){const n=notes.find(x=>x.id===selectedNote);if(!n)return;n.title=$('#noteTitle').value;n.body=$('#noteBody').value;$('#noteSaved').textContent='Сохранение…';clearTimeout(notesSaveTimer);notesSaveTimer=setTimeout(()=>{storeNotes();$$('.note-item').forEach((button,index)=>{const note=notes[index];if(note)button.textContent=note.title||'Без названия'})},370)}
 $('#noteTitle').addEventListener('input',saveNote);$('#noteBody').addEventListener('input',saveNote);
 $('#addNote').addEventListener('click',()=>{const n={id:Date.now(),title:'Новая заметка',body:''};notes.unshift(n);selectedNote=n.id;storeNotes();renderNotes();$('#noteTitle').focus();$('#noteTitle').select()});
 $('#deleteNote').addEventListener('click',()=>{if(notes.length<2)return;notes=notes.filter(x=>x.id!==selectedNote);selectedNote=notes[0].id;storeNotes();renderNotes();toast('Заметка удалена')});
