@@ -38,7 +38,7 @@ npm run build
 ## Native bridge v0
 
 - On startup: a 360 × 75 logical pixel, **undecorated and transparent native window**.
-- Clicking the capsule: Rust receives `set_island_expanded(true)` and resizes/recenters the window (up to 940 × 675 logical px, clamped to monitor).
+- Clicking the capsule: Rust receives `set_island_expanded(true)` and resizes the window (up to 940 × 675 logical px, clamped to monitor). The initial capsule starts at the **top center**; after native dragging, expanding and collapsing preserve its horizontal anchor and top edge instead of jumping back to the center.
 - Closing: WebView remains an ordinary window. Clicking the collapse control restores compact size.
 - Drag handle: uses Tauri's permission-gated native `startDragging` instead of only moving an HTML element.
 - The web's demo snow is disabled in native mode, so no hidden full-screen canvas is rendered.
@@ -57,3 +57,17 @@ npm run build
 On Windows run `npm run dev` and check: capsule click targets, drag without invisible mouse-blocking regions, expand/collapse sizes at 100/150/200% display scaling, transparent corners and wave outline, screenshot editing, closing and reopening, audio pause FPS, multimedia autoplay permissions, and manual weather/LRCLIB queries.
 
 For a high-fidelity desktop-only experience, next implement the Explorer desktop layer adapter with window ownership detection, fallback when Explorer restarts, and multi-monitor support. It must not be enabled by default until verified.
+
+## Fast Windows check
+
+With Node.js, Rust MSVC and C++ Build Tools installed, run from the repository root:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\island-lab\scripts\test-windows.ps1
+```
+
+After launching the compiled EXE, expand the capsule, open **Настройки → Проверка приложения** and select **«Проверить»**. Copy the report to share window/browser API availability and JavaScript error count. The report deliberately excludes private notes, images, music paths and city.
+
+The quit button is intentionally exposed in settings because a frameless window has no standard close control. `Alt+F4` should remain a fallback.
+
+The Tauri CSP explicitly allows `ipc:` and `http://ipc.localhost` for the native bridge while restricting remote requests to LRCLIB and Open-Meteo. The Windows workflow is at `.github/workflows/island-lab-windows.yml` and attempts an unsigned EXE build, if GitHub Actions is enabled for this repository.
