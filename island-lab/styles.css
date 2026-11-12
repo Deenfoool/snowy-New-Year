@@ -236,3 +236,15 @@ html.motion-reduced *,html.motion-reduced *::before,html.motion-reduced *::after
   line-height:1.6;color:#9cbcd1;min-height:20px
 }
 .motion-benchmark button:disabled{opacity:.6;cursor:progress}
+
+/* The morphing body masks its contents to the *actual animated border*.
+   The wave is a sibling at the shell boundary, so it can extend below
+   without being clipped by the pill's rounded corners. */
+.island{overflow:hidden}
+.island-shell>#waveCanvas{
+  position:absolute;left:50%;top:calc(100% - 1px);
+  width:var(--wave-width,326px);height:39px;
+  transform:translateX(-50%) translateZ(0);
+  pointer-events:none;display:block
+}
+.island-shell>.island.collapsed+#waveCanvas{display:none}
