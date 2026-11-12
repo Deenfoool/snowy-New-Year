@@ -3,7 +3,7 @@
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const assets = Object.freeze({
@@ -55,8 +55,7 @@ export function createPreviewServer() {
   });
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) ===
-    new URL('file://' + process.argv[1]).pathname) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const server = createPreviewServer();
   const requestedPort = Number(process.env.PORT) || 4173;
   server.on('error', error => {
