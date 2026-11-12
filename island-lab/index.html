@@ -142,6 +142,16 @@
                 <div class="card settings-card"><h2>Оформление</h2><label>Акцентный цвет <input id="accentColor" type="color" value="#8dd9f6"></label><label>Сила волны <input id="wavePower" type="range" min="10" max="100" value="65"><span id="waveValue">65%</span></label><label class="switch-row"><span>Аудиореактивная граница</span><input type="checkbox" id="waveToggle" checked><i></i></label><label class="switch-row"><span>Снег на фоне</span><input type="checkbox" id="backgroundSnow" checked><i></i></label></div>
                 <div class="card settings-card"><h2>Поведение</h2><label class="switch-row"><span>Уменьшить анимации</span><input type="checkbox" id="reducedMotion"><i></i></label><button class="secondary-action" type="button" id="resetPosition">Сбросить положение островка</button><p class="muted small">Страница открывается в браузере. В будущей Windows-версии островок будет частью рабочего стола, а не поверх остальных окон.</p><p class="muted small">Погода онлайн запрашивается только по введённому городу. Локальные настройки и заметки хранятся в браузере.</p></div>
                 <div class="card settings-card"><h2>Погода</h2><label>Город для онлайн-погоды <input type="text" id="weatherInput" placeholder="Например, Рига" maxlength="100"></label><button type="button" class="secondary-action" id="weatherSearch">Получить погоду</button><div id="weatherMessage" class="muted small">Пока показаны демонстрационные данные.</div></div>
+                <div class="card settings-card diagnostic-card">
+                  <h2>Проверка приложения</h2>
+                  <p class="muted small">После запуска на Windows открой этот раздел, нажми «Проверить» и при необходимости пришли отчёт. Содержимое заметок, скриншотов и название города не включаются.</p>
+                  <div class="diagnostics-actions">
+                    <button type="button" class="secondary-action" id="runDiagnostics">Проверить</button>
+                    <button type="button" class="secondary-action" id="copyDiagnostics">Копировать отчёт</button>
+                    <button type="button" class="secondary-action danger" id="quitNative" hidden>Выйти из Island Lab</button>
+                  </div>
+                  <pre id="diagnosticsOutput" class="diagnostics-output">Нажми «Проверить», чтобы увидеть состояние компонентов.</pre>
+                </div>
               </div>
             </section>
           </div>
