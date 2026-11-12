@@ -78,3 +78,14 @@ cargo build --release --locked
 ```
 
 Панель Frosted Glass написана на Rust и `egui`. Оверлей, отслеживание окон и системный трей используют Win32. [Устройство оверлея](docs/ARCHITECTURE.md) · [Дизайн интерфейса](docs/UI_DESIGN.md) · [Лицензия иконок Lucide](assets/lucide/LICENSE)
+
+
+---
+
+## Island Lab — отдельный экспериментальный проект (только в этой ветке)
+
+В каталоге [island-lab/](island-lab/) находится **независимый браузерный прототип** будущей панели рабочего стола в стиле Dynamic Island: свернутая капсула, аудиоплеер, LRC-текст, аудиореактивная волна вниз от нижней границы, погодная карточка, редактор скриншотов, заметки и визуальный модуль Snowy New Year.
+
+**Запуск:** открыть [island-lab/index.html](island-lab/index.html) в Chrome/Edge. Смотри [документацию](island-lab/README.md) и [план нативного Windows-приложения](island-lab/ROADMAP.md).
+
+Island Lab **не импортируется в Snowy New Year и не меняет его бинарник**. Прототип не имеет системного Windows Media Sessions, доступа к глобальному Print Screen или настоящего desktop-layer — для этого запланирован отдельный нативный хост.
