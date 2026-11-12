@@ -139,3 +139,21 @@ test('LRCLIB throttling guards repeated requests', () => {
   assert.match(js, /response\.headers\.get\('Retry-After'\)/);
   assert.match(js, /Date\.now\(\)<lyricsRetryUntil/);
 });
+
+test('mini player supports a real multi-track local queue', () => {
+  assert.match(html, /id="musicFile"[^>]*multiple/);
+  assert.match(html, /id="queueCount"/);
+  assert.match(js, /async function useFileTrack\(/);
+  assert.match(js, /music\.files\.length>1/);
+  assert.match(js, /music\.fileIndex\+1/);
+  assert.match(js, /URL\.revokeObjectURL/);
+});
+
+test('local filename parser derives artist and title without hardcoding', () => {
+  const start=js.indexOf('function parseLocalTrack(');
+  const end=js.indexOf('async function useFileTrack(',start);
+  assert.ok(start>=0&&end>start);
+  const parse=runInNewContext(js.slice(start,end)+'\nparseLocalTrack',{});
+  assert.deepEqual(JSON.parse(JSON.stringify(parse('Band - Title.mp3'))),{artist:'Band',title:'Title'});
+  assert.deepEqual(JSON.parse(JSON.stringify(parse('Untitled.wav'))),{artist:'',title:'Untitled'});
+});
