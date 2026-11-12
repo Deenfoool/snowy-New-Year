@@ -17,15 +17,19 @@ try {
     Write-Host 'Node:' (node --version)
     Write-Host 'Cargo:' (cargo --version)
 
-    Write-Host '1/3 Install Tauri CLI dependencies...' -ForegroundColor Cyan
+    Write-Host '1/4 Install Tauri CLI dependencies...' -ForegroundColor Cyan
     & npm install --no-audit --no-fund
     if ($LASTEXITCODE -ne 0) { throw "npm install failed ($LASTEXITCODE)" }
 
-    Write-Host '2/3 Run Island Lab web smoke tests...' -ForegroundColor Cyan
+    Write-Host '2/4 Run Island Lab web smoke tests...' -ForegroundColor Cyan
     & npm test
     if ($LASTEXITCODE -ne 0) { throw "Smoke tests failed ($LASTEXITCODE)" }
 
-    Write-Host '3/3 Build unsigned Windows executable...' -ForegroundColor Cyan
+    Write-Host '3/4 Run Rust DSP and native host unit tests...' -ForegroundColor Cyan
+    & cargo test --manifest-path src-tauri/Cargo.toml
+    if ($LASTEXITCODE -ne 0) { throw "Rust tests failed ($LASTEXITCODE)" }
+
+    Write-Host '4/4 Build unsigned Windows executable...' -ForegroundColor Cyan
     & npm run build
     if ($LASTEXITCODE -ne 0) { throw "Native build failed ($LASTEXITCODE)" }
 
