@@ -747,7 +747,8 @@ function drawWave(now=performance.now()){
 }
 function frame(now){
   waveRaf=0;
-  if(!expanded||document.hidden||options.reducedMotion||!options.waveEnabled){
+  if(!expanded||document.hidden||!options.waveEnabled||
+     motion?.motionAllowed(options.reducedMotion)===false){
     waveDynamics.height=0;waveDynamics.velocity=0;
     waveDynamics.bands.fill(0);clearWave();return
   }
@@ -769,7 +770,8 @@ function frame(now){
   startWaveLoop()
 }
 function startWaveLoop(){
-  if(waveRaf||!expanded||document.hidden||options.reducedMotion||
+  if(waveRaf||!expanded||document.hidden||
+     motion?.motionAllowed(options.reducedMotion)===false||
      !options.waveEnabled)return;
   const hasSource=music.playing&&(music.mode!=='system'||nativeSystemAudioActive());
   if(!hasSource&&!waveHasTail())return;
@@ -1069,7 +1071,11 @@ $('#deleteNote').addEventListener('click',()=>{if(notes.length<2)return;notes=no
 
 /* Snow effect behind the widget is isolated from the Snowy New Year process. */
 const snow=document.createElement('canvas');snow.id='previewSnow';Object.assign(snow.style,{position:'absolute',inset:'0',width:'100%',height:'100%',pointerEvents:'none',zIndex:'1'});$('#desktop').append(snow);const sc=snow.getContext('2d');const flakes=Array.from({length:90},()=>({x:Math.random(),y:Math.random(),r:.55+Math.random()*2.1,v:.12+Math.random()*.52}));let snowFrame=0,snowRaf=0;
-function snowEnabled(){return options.snow&&options.backgroundSnow&&!options.reducedMotion&&!nativeShell&&!document.hidden&&options.snowIntensity>0}
+function snowEnabled(){
+  return options.snow&&options.backgroundSnow&&
+    motion?.motionAllowed(options.reducedMotion)!==false&&
+    !nativeShell&&!document.hidden&&options.snowIntensity>0
+}
 function renderSnow(time){
   snowRaf=0;
   if(!snowEnabled())return;
@@ -1104,6 +1110,19 @@ function updateSnowLoop(){
 }
 document.addEventListener('visibilitychange',()=>{
   updateSnowLoop();if(!document.hidden)startWaveLoop()
+});
+// Native Windows/Edge can change accessibility preferences without restarting
+// Island. Suspend decorative loops rather than just hiding their CSS layers.
+const reducedPreference=window.matchMedia?.('(prefers-reduced-motion: reduce)');
+reducedPreference?.addEventListener?.('change',()=>{
+  updateSnowLoop();
+  if(reducedPreference.matches){
+    if(waveRaf){cancelAnimationFrame(waveRaf);waveRaf=0}
+    waveDynamics.height=0;waveDynamics.velocity=0;waveDynamics.bands.fill(0);
+    clearWave()
+  }else{
+    drawWave();startWaveLoop()
+  }
 });
 
 for(const [id,key,transform] of [['accentColor','accent',v=>v],['motionStyle','motionStyle',v=>v],['wavePower','wavePower',v=>+v],['waveToggle','waveEnabled',v=>v],['reducedMotion','reducedMotion',v=>v],['backgroundSnow','backgroundSnow',v=>v],['snowToggle','snow',v=>v],['capsToggle','caps',v=>v],['snowmenToggle','snowmen',v=>v],['snowIntensity','snowIntensity',v=>+v]]){$('#'+id).addEventListener(id==='accentColor'||id==='wavePower'||id==='snowIntensity'?'input':'change',e=>setOption(key,e.target.type==='checkbox'?e.target.checked:transform(e.target.value)))}
