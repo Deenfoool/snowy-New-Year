@@ -49,6 +49,19 @@ function animateLabel(selector,value){
   if(motion)motion.animateValue(element,value,{enabled:expanded&&!options.reducedMotion});
   else if(element)element.textContent=String(value??'')
 }
+function animateCoverChange(){
+  if(!expanded||tab!=='home'||!motion?.motionAllowed(options.reducedMotion))return;
+  const artwork=$('.cover');
+  if(!artwork||typeof artwork.animate!=='function')return;
+  artwork.getAnimations?.().forEach(animation=>animation.cancel());
+  artwork.animate([
+    {opacity:.65,transform:'translate3d(0,5px,0) scale(.945)'},
+    {opacity:1,transform:'translate3d(0,0,0) scale(1)'}
+  ],{
+    duration:motion.timings().reveal,
+    easing:'cubic-bezier(.18,1,.3,1)'
+  })
+}
 let expanded=false,tab='home',morphSequence=0,morphTimer=0;
 const nav=$('.tabs');
 const navIndicator=document.createElement('span');
@@ -247,7 +260,7 @@ function schedule(){if(!music.playing||music.mode!=='demo'||!music.ctx)return;wh
 async function play(){if(music.mode==='system'){await controlSystemMusic('play');return}if(!audioInit())return;try{await music.ctx.resume();if(music.mode==='file'){if(!music.source){music.source=music.ctx.createMediaElementSource(audio);music.source.connect(music.bus)}await audio.play()}else{music.start=performance.now()/1000-music.offset;music.beat=Math.floor(music.offset/.35);music.nextBeat=music.ctx.currentTime;clearInterval(music.timer);music.timer=setInterval(schedule,75);schedule()}music.playing=true;updatePlayer();startWaveLoop()}catch(e){toast('Не удалось воспроизвести: '+e.message)}}
 function pause(){if(music.mode==='system'){controlSystemMusic('pause');return}if(music.mode==='file')audio.pause();else music.offset=currentTime();music.playing=false;clearInterval(music.timer);updatePlayer();drawWave()}
 function toggle(){if(music.mode==='system'){controlSystemMusic('toggle');return}music.playing?pause():play()}
-function loadDemo(index){pause();music.mode='demo';music.demoIndex=(index+tracks.length)%tracks.length;music.offset=0;music.lyricIndex=-1;music.lyricsRequest++;music.lyrics=activeTrack().lyrics.map(([at,text])=>({at,text}));animateLabel('#trackName',activeTrack().name);animateLabel('#trackArtist',activeTrack().artist);$('#lyricsTrack').value=activeTrack().name;$('#lyricsArtist').value=activeTrack().artist;$('#lyricStatus').textContent='Встроенный демо-текст';$('#queueCount').textContent='DEMO '+(music.demoIndex+1)+'/'+tracks.length;updatePlayer()}
+function loadDemo(index){pause();music.mode='demo';music.demoIndex=(index+tracks.length)%tracks.length;music.offset=0;music.lyricIndex=-1;music.lyricsRequest++;music.lyrics=activeTrack().lyrics.map(([at,text])=>({at,text}));animateLabel('#trackName',activeTrack().name);animateLabel('#trackArtist',activeTrack().artist);animateCoverChange();$('#lyricsTrack').value=activeTrack().name;$('#lyricsArtist').value=activeTrack().artist;$('#lyricStatus').textContent='Встроенный демо-текст';$('#queueCount').textContent='DEMO '+(music.demoIndex+1)+'/'+tracks.length;updatePlayer()}
 function parseLocalTrack(filename){
   const base=filename.replace(/\.[^.]+$/,'');
   const match=base.match(/^(.+?)\s+[-–—]\s+(.+)$/);
@@ -264,6 +277,7 @@ async function useFileTrack(index,shouldPlay){
   const meta=parseLocalTrack(item.name);
   animateLabel('#trackName',meta.title);
   animateLabel('#trackArtist',meta.artist||'Локальный файл');
+  animateCoverChange();
   $('#lyricsTrack').value=meta.title;
   $('#lyricsArtist').value=meta.artist;
   $('#lyricStatus').textContent='Загрузи LRC или найди текст';
@@ -511,6 +525,7 @@ function showSystemSnapshot(snapshot,error){
     music.lyricsRequest++;music.lyrics=[];music.lyricIndex=-1;
     animateLabel('#trackName',snapshot.title||'Без названия');
     animateLabel('#trackArtist',snapshot.artist||'Неизвестный исполнитель');
+    animateCoverChange();
     $('#lyricsTrack').value=snapshot.title||'';
     $('#lyricsArtist').value=snapshot.artist||'';
     $('#lyricStatus').textContent='Найди текст через LRCLIB';
