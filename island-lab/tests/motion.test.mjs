@@ -156,7 +156,10 @@ test('rapid native expand followed by collapse queues final Windows size',async(
       },
       style:{setProperty(){}}
     },
-    panel:{inert:true},
+    panel:{inert:true,contains:()=>false},
+    collapsedBar:{inert:false,contains:()=>false},
+    document:{activeElement:null},
+    $:()=>({focus(){}}),
     motion:{
       motionAllowed:()=>true,
       timings:()=>({morph:560}),
@@ -263,7 +266,10 @@ test('failed Windows viewport expansion leaves the visible capsule collapsed',as
       },
       style:{setProperty(){}}
     },
-    panel:{inert:true},motion:{motionAllowed:()=>true,timings:()=>({morph:560}),
+    panel:{inert:true,contains:()=>false},
+    collapsedBar:{inert:false,contains:()=>false},
+    document:{activeElement:null},
+    $:()=>({focus(){}}),motion:{motionAllowed:()=>true,timings:()=>({morph:560}),
       onceTransition:()=>Promise.resolve(),clearLyrics(){}},
     options:{reducedMotion:false},
     requestAnimationFrame:()=>1,setTimeout:()=>1,clearTimeout(){},
