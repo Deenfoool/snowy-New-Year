@@ -121,7 +121,9 @@ impl Drop for AudioCaptureState {
     }
 }
 
-#[tauri::command]
+// The start handshake may join a prior worker; don't block WebView's UI
+// thread and turn an audio-device hiccup into a visible animation stutter.
+#[tauri::command(async)]
 pub fn audio_capture_start(
     app: tauri::AppHandle,
     state: tauri::State<'_, AudioCaptureState>,
@@ -169,7 +171,9 @@ pub fn audio_capture_start(
     Ok(true)
 }
 
-#[tauri::command]
+// stop_capture joins the WASAPI thread (up to the endpoint wait period).
+// Move this synchronous operation off Tauri's UI thread.
+#[tauri::command(async)]
 pub fn audio_capture_stop(state: tauri::State<'_, AudioCaptureState>) -> bool {
     state.stop_capture();
     true
