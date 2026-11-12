@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0b1625">
+  <meta name="description" content="Island Lab — отдельный интерактивный прототип динамической панели рабочего стола Windows.">
+  <title>Island Lab · Desktop Island prototype</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script src="./app.js" defer></script>
+</head>
+<body>
+  <main id="desktop" aria-label="Демонстрация рабочего стола">
+    <div class="desktop-haze"></div>
+    <div class="desktop-caption"><span class="caption-star">✳</span><strong>ISLAND LAB</strong><span>DESKTOP EXPERIENCE</span></div>
+    <div class="desktop-time" id="desktopClock">08:42</div>
+    <div class="desktop-instruction">Нажми на капсулу сверху, чтобы раскрыть её · Перетащи за пустую область · Esc — свернуть</div>
+
+    <section class="island-shell" id="shell" aria-label="Island Lab">
+      <div class="island collapsed" id="island">
+        <div class="collapsed-bar" id="collapsedBar">
+          <div class="micro-player" aria-label="Мини-проигрыватель">
+            <button class="mini-btn" type="button" data-player="prev" title="Предыдущий трек" aria-label="Предыдущий трек">⏮</button>
+            <button class="mini-btn main-play" type="button" data-player="toggle" title="Воспроизвести или поставить на паузу" aria-label="Воспроизвести">▶</button>
+            <button class="mini-btn" type="button" data-player="next" title="Следующий трек" aria-label="Следующий трек">⏭</button>
+          </div>
+          <button id="expandTarget" class="collapsed-middle" type="button" title="Развернуть Island Lab" aria-label="Развернуть Island Lab"><span class="status-dot"></span><span class="collapsed-label">Island Lab</span></button>
+          <div class="micro-weather" title="Погода: демонстрационные данные"><span id="miniWeatherIcon">❄</span><span id="miniTemperature">−5°</span><span class="weather-demo-dot">DEMO</span></div>
+        </div>
+
+        <div class="expanded-panel" id="expandedPanel" inert>
+          <header class="panel-header">
+            <div class="brand-mark">✳</div>
+            <div class="brand-name"><strong>Island Lab</strong><small>ТВОЙ РАБОЧИЙ СТОЛ, ПО-НОВОМУ</small></div>
+            <div class="panel-drag" id="dragHandle" title="Перетащить панель"></div>
+            <div class="header-right"><span class="panel-state" id="panelState">Демо-режим</span><button id="collapseButton" class="icon-button" type="button" aria-label="Свернуть Island Lab" title="Свернуть">⌃</button></div>
+          </header>
+
+          <nav class="tabs" aria-label="Разделы">
+            <button type="button" class="tab active" data-tab="home" aria-current="page">⌂ <span>Главная</span></button>
+            <button type="button" class="tab" data-tab="shots">▣ <span>Скриншоты</span></button>
+            <button type="button" class="tab" data-tab="snow">❄ <span>Snowy New Year</span></button>
+            <button type="button" class="tab" data-tab="notes">▤ <span>Блокнот</span></button>
+            <button type="button" class="tab" data-tab="settings">⚙ <span>Настройки</span></button>
+          </nav>
+
+          <div class="panel-body">
+            <section class="tab-content active" id="view-home" aria-labelledby="tab-home">
+              <div class="section-label">ГЛАВНАЯ <span>МУЗЫКА · ТЕКСТ · ПОГОДА</span></div>
+              <div class="home-grid">
+                <article class="card music-card">
+                  <div class="card-eyebrow">СЕЙЧАС ИГРАЕТ</div>
+                  <div class="cover"><span>♫</span><div class="cover-glow"></div></div>
+                  <div class="track-name" id="trackName">Polar Echoes</div>
+                  <div class="muted" id="trackArtist">Island Lab — Demo</div>
+                  <div class="timeline"><input type="range" id="seek" value="0" min="0" max="100" aria-label="Перемотка"></div>
+                  <div class="time-labels"><span id="timeNow">0:00</span><span id="timeEnd">0:48</span></div>
+                  <div class="player-buttons">
+                    <button type="button" class="icon-button" data-player="prev" aria-label="Предыдущий">⏮</button>
+                    <button type="button" class="icon-button play-big" data-player="toggle" aria-label="Воспроизвести">▶</button>
+                    <button type="button" class="icon-button" data-player="next" aria-label="Следующий">⏭</button>
+                  </div>
+                  <label class="small-action">＋ Загрузить музыку <input id="musicFile" type="file" accept="audio/*" hidden></label>
+                </article>
+                <article class="card lyrics-card">
+                  <div class="card-eyebrow">СЛОВА ПЕСНИ <span class="right-muted">LRC</span></div>
+                  <div class="lyric-drum">
+                    <div id="lyricPast" class="lyric past">—</div>
+                    <div id="lyricPresent" class="lyric present">Музыка — часть атмосферы</div>
+                    <div id="lyricFuture" class="lyric future">—</div>
+                    <span class="drum-top"></span><span class="drum-bottom"></span>
+                  </div>
+                  <div class="lyrics-footer"><span class="muted" id="lyricStatus">Встроенный демо-текст</span><label class="small-action">Загрузить LRC <input id="lyricsFile" type="file" accept=".lrc,text/plain" hidden></label></div>
+                </article>
+                <article class="card weather-card">
+                  <div class="card-eyebrow">ПОГОДА <span class="demo-pill" id="weatherSource">ДЕМО</span></div>
+                  <div class="weather-symbol" id="weatherIcon">☁</div>
+                  <div class="weather-temperature" id="weatherTemp">−5°</div>
+                  <div class="weather-conditions" id="weatherText">Облачно, небольшой снег</div>
+                  <div class="muted weather-city" id="weatherCity">Пример погоды</div>
+                  <div class="weather-wind" id="weatherWind">Ветер 3 м/с</div>
+                  <button class="small-action weather-action" id="refreshWeather" type="button" title="Получить актуальную погоду по выбранному городу">↻ Обновить</button>
+                </article>
+              </div>
+              <div class="home-hint"><span class="hint-dot"></span>Волна — настоящий нижний край Island. Нажми ▶ и посмотри, как он меняется от аудио.</div>
+            </section>
+
+            <section class="tab-content" id="view-shots">
+              <div class="section-label">СКРИНШОТЫ <span>СНИМОК · РЕДАКТОР · ЭКСПОРТ</span></div>
+              <div class="actions"><button class="primary-action" type="button" id="captureScreen">▣ Сделать скриншот</button><label class="secondary-action">↑ Открыть изображение<input id="imageFile" type="file" accept="image/*" hidden></label><button class="secondary-action" type="button" id="pasteHelp">⌘ Вставить из буфера</button><button class="secondary-action" type="button" id="saveShot">↓ Сохранить PNG</button></div>
+              <div class="toolstrip" aria-label="Инструменты рисования">
+                <button type="button" class="tool active" data-tool="pen" title="Карандаш">✎</button>
+                <button type="button" class="tool" data-tool="arrow" title="Стрелка">↗</button>
+                <button type="button" class="tool" data-tool="rect" title="Прямоугольник">▭</button>
+                <button type="button" class="tool" data-tool="text" title="Текст">T</button>
+                <button type="button" class="tool" data-tool="eraser" title="Ластик">⌫</button>
+                <div class="tool-divider"></div><label class="tool-color" title="Выбор цвета"><input type="color" id="penColor" value="#8dd9f6"></label><label class="range-label">Размер <input type="range" min="2" max="30" value="5" id="penSize"></label>
+                <div class="tool-divider"></div><button type="button" class="tool" id="undo" title="Отменить">↶</button><button type="button" class="tool" id="redo" title="Повторить">↷</button><button type="button" class="tool" id="clearEdits" title="Очистить рисунок">✕</button>
+              </div>
+              <div class="editor-frame"><canvas id="imageCanvas" width="1080" height="608"></canvas><canvas id="drawCanvas" width="1080" height="608"></canvas></div>
+              <div class="editor-footer"><span id="editorStatus">Вставь скриншот Ctrl+V или загрузи изображение</span><span>Print Screen: системный снимок → Ctrl+V</span></div>
+            </section>
+
+            <section class="tab-content" id="view-snow">
+              <div class="section-label">SNOWY NEW YEAR <span>ОТДЕЛЬНЫЙ МОДУЛЬ · ДЕМОНСТРАЦИЯ</span></div>
+              <div class="snow-card card"><div class="snow-heading"><span class="snow-illustration">❄</span><div><h2>Snowy New Year</h2><p class="muted">Управление эффектами рабочего стола</p></div><span class="demo-pill">DEMO</span></div>
+              <label class="switch-row"><span>Снегопад <small>Анимированные снежинки на демонстрационном рабочем столе</small></span><input type="checkbox" id="snowToggle" checked><i></i></label>
+              <label class="switch-row"><span>Снежные шапки <small>Декоративный режим-прототип</small></span><input type="checkbox" id="capsToggle" checked><i></i></label>
+              <label class="switch-row"><span>Снеговики <small>Доступны в полноценном приложении Snowy New Year</small></span><input type="checkbox" id="snowmenToggle" checked><i></i></label>
+              <label class="range-row">Интенсивность снегопада <input id="snowIntensity" type="range" min="0" max="100" value="42"><span id="snowPercent">42%</span></label>
+              <p class="muted small">Здесь управляются только эффекты веб-демонстрации. Подключение к настоящему приложению потребует Windows-интеграции.</p>
+              <a class="external-link" target="_blank" rel="noopener noreferrer" href="https://github.com/Deenfoool/snowy-New-Year">Репозиторий Snowy New Year ↗</a></div>
+            </section>
+
+            <section class="tab-content" id="view-notes">
+              <div class="section-label">БЛОКНОТ <span>АВТОСОХРАНЕНИЕ НА ЭТОМ УСТРОЙСТВЕ</span></div>
+              <div class="notes-layout">
+                <aside class="notes-side"><button type="button" class="primary-action" id="addNote">＋ Новая заметка</button><div class="notes-list" id="notesList"></div></aside>
+                <div class="note-editor"><input id="noteTitle" aria-label="Название заметки" placeholder="Название заметки"><textarea id="noteBody" placeholder="Твоя новая идея…" spellcheck="true"></textarea><div class="note-foot"><span id="noteSaved">Сохранено локально</span><button id="deleteNote" type="button" class="secondary-action danger">Удалить</button></div></div>
+              </div>
+            </section>
+
+            <section class="tab-content" id="view-settings">
+              <div class="section-label">НАСТРОЙКИ <span>ВНЕШНИЙ ВИД · ПОВЕДЕНИЕ</span></div>
+              <div class="settings-grid">
+                <div class="card settings-card"><h2>Оформление</h2><label>Акцентный цвет <input id="accentColor" type="color" value="#8dd9f6"></label><label>Сила волны <input id="wavePower" type="range" min="10" max="100" value="65"><span id="waveValue">65%</span></label><label class="switch-row"><span>Аудиореактивная граница</span><input type="checkbox" id="waveToggle" checked><i></i></label><label class="switch-row"><span>Снег на фоне</span><input type="checkbox" id="backgroundSnow" checked><i></i></label></div>
+                <div class="card settings-card"><h2>Поведение</h2><label class="switch-row"><span>Уменьшить анимации</span><input type="checkbox" id="reducedMotion"><i></i></label><button class="secondary-action" type="button" id="resetPosition">Сбросить положение островка</button><p class="muted small">Страница открывается в браузере. В будущей Windows-версии островок будет частью рабочего стола, а не поверх остальных окон.</p><p class="muted small">Погода онлайн запрашивается только по введённому городу. Локальные настройки и заметки хранятся в браузере.</p></div>
+                <div class="card settings-card"><h2>Погода</h2><label>Город для онлайн-погоды <input type="text" id="weatherInput" placeholder="Например, Рига" maxlength="100"></label><button type="button" class="secondary-action" id="weatherSearch">Получить погоду</button><div id="weatherMessage" class="muted small">Пока показаны демонстрационные данные.</div></div>
+              </div>
+            </section>
+          </div>
+        </div>
+        <canvas id="waveCanvas" aria-hidden="true"></canvas>
+      </div>
+    </section>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  </main>
+  <audio id="audio" preload="metadata"></audio>
+</body>
+</html>
