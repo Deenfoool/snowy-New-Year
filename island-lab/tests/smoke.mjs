@@ -218,3 +218,11 @@ test('native desktop layering has a guarded 20-second rollback, not WorkerW inje
   assert.match(rust,/genuine_desktop_host: false/);
   assert.doesNotMatch(rust,/SetParent|FindWindowW|SendMessageW/);
 });
+
+test('WASAPI native start and stop cannot block the WebView UI thread',()=>{
+  const rust=readFileSync(join(dir,'native','src-tauri','src','audio.rs'),'utf8');
+  assert.match(rust,/#\[tauri::command\(async\)\]\s*pub fn audio_capture_start/);
+  assert.match(rust,/#\[tauri::command\(async\)\]\s*pub fn audio_capture_stop/);
+  assert.match(rust,/fn stop_capture\(&self\)/);
+  assert.match(rust,/worker\.join\(\)/);
+});
