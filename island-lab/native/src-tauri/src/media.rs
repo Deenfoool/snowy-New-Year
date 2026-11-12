@@ -20,17 +20,28 @@ pub struct MediaSnapshot {
 #[cfg(windows)]
 mod platform {
     use super::MediaSnapshot;
+    use std::sync::OnceLock;
     use windows::Media::Control::{
         GlobalSystemMediaTransportControlsSession,
         GlobalSystemMediaTransportControlsSessionManager,
         GlobalSystemMediaTransportControlsSessionPlaybackStatus,
     };
 
+    // Requesting a new WinRT manager on every 2-second UI poll needlessly
+    // allocates COM objects. Cache it once; clones only increase a refcount.
+    static MANAGER: OnceLock<GlobalSystemMediaTransportControlsSessionManager> = OnceLock::new();
+
     async fn active_session() -> Result<Option<GlobalSystemMediaTransportControlsSession>, String> {
-        let manager = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()
-            .map_err(|error| error.to_string())?
-            .await
-            .map_err(|error| error.to_string())?;
+        let manager = if let Some(existing) = MANAGER.get() {
+            existing.clone()
+        } else {
+            let created = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()
+                .map_err(|error| error.to_string())?
+                .await
+                .map_err(|error| error.to_string())?;
+            let _ = MANAGER.set(created.clone());
+            created
+        };
         // No active session is normal (e.g. music player is closed).
         Ok(manager.GetCurrentSession().ok())
     }
