@@ -96,10 +96,18 @@ fn set_island_expanded(
     Ok(())
 }
 
+#[tauri::command]
+fn quit_island_lab(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
 fn main() {
     tauri::Builder::default()
         .manage(WindowPositionState::default())
-        .invoke_handler(tauri::generate_handler![set_island_expanded])
+        .invoke_handler(tauri::generate_handler![
+            set_island_expanded,
+            quit_island_lab
+        ])
         .run(tauri::generate_context!())
         .expect("Island Lab native host could not start");
 }
