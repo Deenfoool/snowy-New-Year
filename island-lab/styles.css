@@ -38,3 +38,10 @@ html.native-shell .desktop-time,html.native-shell .desktop-instruction,
 html.native-shell #previewSnow{display:none!important}
 html.native-shell .island-shell{top:8px;left:50%;width:calc(100vw - 16px)}
 html.native-shell .island{max-width:100%}
+
+/* First-PC-launch diagnostics; the log omits user content by design. */
+.diagnostic-card{grid-column:1/-1}
+.diagnostics-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.diagnostics-output{font:11px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere;color:#b4d4e9;background:#102436;border:1px solid var(--border);border-radius:11px;padding:11px 13px;max-height:220px;overflow:auto;user-select:text}
+.diagnostics-actions .danger{border-color:rgba(252,141,155,.35)}
+.diagnostics-actions [hidden]{display:none!important}
