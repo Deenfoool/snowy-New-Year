@@ -51,7 +51,7 @@ npm run build
 
 1. **Not pinned to the desktop's WorkerW/Progman layer.** The native shell currently behaves like an ordinary borderless window. Proper desktop-only placement requires a separate, carefully tested Win32 adapter; attaching to Explorer windows too early is risky.
 2. **Not integrated with Windows Media Sessions or system-wide audio.** The pIayer uses the local demo or user-selected audio files.
-3. **No global Print Screen hook.** Capture remains the web permission-based flow, local image upload or clipboard paste. Do not promise native screenshots without implementing them.
+3. **No global Print Screen hook.** Capture still uses browser-permission screen sharing, image upload or clipboard paste. **Saving annotated screenshots is native**: the Windows host can write PNGs to the user's Pictures/Island Lab folder and open it in Explorer. This does not mean native screenshot *capture* is implemented.
 4. **No tray/autostart/installer** in this milestone. The existing Snowy New Year executable and tray are unchanged.
    The native Media Sessions bridge is an untested Windows API integration. Compatible players must expose an active media session. Some players do not publish a reliable duration/position and may refuse seek or skip commands.
 5. **Not build-verified in this work environment.** The Rust toolchain and Windows SDK are unavailable here. This is a source implementation that must be compiled on Windows before being considered a release.
@@ -104,3 +104,17 @@ Source references: Microsoft [WASAPI loopback](https://learn.microsoft.com/en-us
 The Windows host now includes **Settings → Размещение на рабочем столе**: a 20-second reversible test of the documented Tauri `set_always_on_bottom` API. A separate Rust thread reverts it even if the frontend freezes. You may confirm the trial for the rest of the process lifetime or cancel it. **Nothing is persisted** and the window remains available on the taskbar. This does **not** attach to WorkerW, and may go behind the desktop icon host; it must be manually validated before being considered a real desktop widget.
 
 See [the Windows desktop-layer test matrix](../DESKTOP_LAYER_TEST.md).
+
+## Native screenshot export and Explorer folder
+
+The screenshot editor has an **«Открыть папку»** button visible only in the native host. The Rust `screenshots.rs` module implements:
+
+- `save_screenshot_native`: accepts PNG data from the existing edited canvas, limits the payload to **32 MiB**, validates PNG signature and dimensions, and writes with `create_new(true)` under Windows' Pictures known folder in an `Island Lab` subfolder.
+- `open_screenshot_folder_native`: opens that same folder with `explorer.exe` using a direct process argument (not a shell command).
+- If native saving fails, the frontend explicitly reports this and downloads the PNG through the WebView instead.
+
+This module cannot capture global Print Screen yet; the Windows screen-capture adapter is a separate milestone. Files are not uploaded to a server. New image names come only from Rust; the web UI cannot choose arbitrary filesystem destinations.
+
+The WASAPI capture lifecycle also now coordinates simultaneous start/stop requests, including when the capture is disabled before the native startup handshake finishes. The Rust worker is synchronized with a mutex; no audio capture should remain enabled after an opt-out command returns.
+
+For the first Windows smoke test, annotate an image, crop it, save, open Pictures/Island Lab, and verify the exported PNG dimensions and contents. Then disable WASAPI immediately after enabling it and verify it stops.
