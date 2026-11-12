@@ -10,15 +10,20 @@ let runtimeErrorCount=0;
 window.addEventListener('error',()=>{runtimeErrorCount++});
 window.addEventListener('unhandledrejection',()=>{runtimeErrorCount++});
 document.documentElement.classList.toggle('native-shell',nativeShell);
+let nativeResizeQueue=Promise.resolve();
 function resizeNativeWindow(expanded){
   if(!nativeShell)return Promise.resolve(true);
-  return nativeApi.core.invoke('set_island_expanded',{expanded})
+  // Serialize Win32 window geometry changes. A slow completion from a prior
+  // expand request must never overwrite a newer collapse request.
+  const apply=()=>nativeApi.core.invoke('set_island_expanded',{expanded})
     .then(()=>{nativeBridgeStatus='OK';return true})
     .catch(error=>{
       nativeBridgeStatus='Ошибка IPC';
       console.warn('Island Lab: native window resize failed',error);
       return false
-    })
+    });
+  nativeResizeQueue=nativeResizeQueue.then(apply,apply);
+  return nativeResizeQueue
 }
 const KEY='island-lab-v1', NOTES='island-lab-notes-v1';
 const defaults={accent:'#8dd9f6',wavePower:65,waveEnabled:true,reducedMotion:false,backgroundSnow:true,snow:true,caps:true,snowmen:true,snowIntensity:42,weatherCity:'',lyricsOffset:0,motionStyle:'fluid',offset:null};
@@ -91,7 +96,12 @@ let expandRequest=0;
 async function setExpanded(value){
   const next=Boolean(value);
   const request=++expandRequest;
-  if(next===expanded&&island.classList.contains('collapsed')===!next)return;
+  if(next===expanded&&island.classList.contains('collapsed')===!next){
+    // Another resize may still be queued: reconcile the actual Windows size
+    // even when the visible CSS capsule already looks correct.
+    if(nativeShell)await resizeNativeWindow(next);
+    return
+  }
   // Grow the transparent Windows viewport first. The actual visible pill
   // then morphs inside it rather than flashing a full-sized panel.
   if(next&&nativeShell){
