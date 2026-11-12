@@ -107,13 +107,14 @@
                 <button type="button" class="tool" data-tool="arrow" title="Стрелка">↗</button>
                 <button type="button" class="tool" data-tool="rect" title="Прямоугольник">▭</button>
                 <button type="button" class="tool" data-tool="ellipse" title="Овал">◯</button>
+                <button type="button" class="tool" data-tool="crop" title="Выделить область обрезки">⌗</button>
                 <button type="button" class="tool" data-tool="text" title="Текст">T</button>
                 <button type="button" class="tool" data-tool="eraser" title="Ластик">⌫</button>
                 <div class="tool-divider"></div><label class="tool-color" title="Выбор цвета"><input type="color" id="penColor" value="#8dd9f6"></label><label class="range-label">Размер <input type="range" min="2" max="30" value="5" id="penSize"></label>
                 <div class="tool-divider"></div><button type="button" class="tool" id="undo" title="Отменить">↶</button><button type="button" class="tool" id="redo" title="Повторить">↷</button><button type="button" class="tool" id="clearEdits" title="Очистить рисунок">✕</button>
               </div>
-              <div class="editor-frame"><canvas id="imageCanvas" width="1080" height="608"></canvas><canvas id="drawCanvas" width="1080" height="608"></canvas></div>
-              <div class="editor-footer"><span id="editorStatus">Вставь скриншот Ctrl+V или загрузи изображение</span><span>Print Screen: системный снимок → Ctrl+V</span></div>
+              <div class="editor-frame"><canvas id="imageCanvas" width="1080" height="608"></canvas><canvas id="drawCanvas" width="1080" height="608"></canvas><div id="cropOutline" class="crop-outline" hidden aria-hidden="true"></div></div>
+              <div class="editor-footer"><button type="button" class="secondary-action" id="removeCrop" hidden>Отменить обрезку</button><span id="editorStatus">Вставь скриншот Ctrl+V или загрузи изображение</span><span>Print Screen: системный снимок → Ctrl+V</span></div>
             </section>
 
             <section class="tab-content" id="view-snow">
