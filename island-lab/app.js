@@ -66,6 +66,8 @@ let expanded=false,tab='home',morphSequence=0,morphTimer=0;
 const nav=$('.tabs');
 const collapsedBar=$('#collapsedBar');
 let tabRequest=0,tabTransition=null;
+const tabScrollPositions=Object.create(null);
+const panelBody=$('.panel-body');
 const navIndicator=document.createElement('span');
 navIndicator.className='tabs-indicator';
 navIndicator.setAttribute('aria-hidden','true');
@@ -165,6 +167,7 @@ function showTab(name){
     // View Transitions can defer their update callback. Ignore an obsolete
     // one if a newer tab was selected while the old transition was pending.
     if(ticket!==tabRequest)return;
+    if(tab!==name)tabScrollPositions[tab]=panelBody.scrollTop;
     tab=name;
     $$('.tab').forEach(button=>{
       const active=button.dataset.tab===name;
@@ -177,6 +180,10 @@ function showTab(name){
       view.classList.toggle('active',active);
       view.inert=!active
     });
+    // Each section remembers its own scroll offset. The previous version
+    // reused one panel-body scroll position, making short tabs open blank
+    // after visiting a long settings page.
+    panelBody.scrollTop=tabScrollPositions[name]||0;
     if(name==='shots')requestAnimationFrame(updateEditor);
     requestAnimationFrame(()=>{
       if(ticket!==tabRequest)return;
