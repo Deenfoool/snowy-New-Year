@@ -53,3 +53,12 @@ html.native-shell .native-only{display:block!important}
 .system-player-control .switch-row{font-size:11px;padding:9px 0}
 .system-player-control .switch-row span small{font-size:9px}
 .system-player-status{display:block;font-size:9px;line-height:1.5;overflow-wrap:anywhere;margin-top:6px}
+
+/* Reversible desktop placement trial, shown only in the native host. */
+.desktop-preview-card{grid-column:1/-1}
+.desktop-preview-card h2{margin-bottom:8px}
+.desktop-preview-card p{margin:8px 0}
+.desktop-preview-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:12px 0}
+.desktop-preview-actions button:disabled{opacity:.42;cursor:not-allowed}
+.desktop-preview-status{font-size:11px;font-weight:700;color:var(--accent);background:rgba(var(--accent-rgb),.08);border:1px solid rgba(var(--accent-rgb),.20);border-radius:9px;padding:10px}
+.desktop-preview-actions .danger{border-color:rgba(255,144,155,.27)}
