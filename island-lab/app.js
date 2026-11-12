@@ -264,7 +264,29 @@ audio.addEventListener('ended',()=>{
 });
 function parseLRC(text){const items=[];for(const line of text.replace(/\r/g,'').split('\n')){const lyric=line.replace(/\[(?:\d+:\d+(?:\.\d+)?|[^\]]+)\]/g,'').trim();for(const m of line.matchAll(/\[(\d+):(\d+(?:\.\d+)?)\]/g)){if(lyric)items.push({at:+m[1]*60+ +m[2],text:lyric})}}return items.sort((a,b)=>a.at-b.at)}
 $('#lyricsFile').addEventListener('change',async e=>{const file=e.target.files?.[0];if(!file)return;const data=parseLRC(await file.text());if(!data.length){toast('Не найдены строки [mm:ss.xx]');return}music.lyricsRequest++;music.lyrics=data;music.lyricIndex=-1;$('#lyricStatus').textContent=file.name;updateLyrics();toast('LRC загружен: '+data.length+' строк')});
-function updateLyrics(){const time=Math.max(0,currentTime()-options.lyricsOffset);const lines=music.lyrics;let i=-1;for(let x=0;x<lines.length;x++){if(lines[x].at<=time)i=x;else break}if(i===music.lyricIndex)return;music.lyricIndex=i;const set=(id,text)=>{const el=$(id);el.textContent=text||'—';el.classList.remove('animate');void el.offsetWidth;el.classList.add('animate')};set('#lyricPast',i>=1?lines[i-1].text:'—');set('#lyricPresent',i>=0?lines[i].text:'Музыка — часть атмосферы');set('#lyricFuture',lines[i+1]?.text||'—')}
+function updateLyrics(){
+  const time=Math.max(0,currentTime()-options.lyricsOffset);
+  const lines=music.lyrics;
+  let index=-1;
+  for(let i=0;i<lines.length;i++){
+    if(lines[i].at<=time)index=i;
+    else break
+  }
+  if(index===music.lyricIndex)return;
+  const direction=index<music.lyricIndex?-1:1;
+  music.lyricIndex=index;
+  const text=[
+    index>=1?lines[index-1].text:'—',
+    index>=0?lines[index].text:'Музыка — часть атмосферы',
+    lines[index+1]?.text||'—'
+  ];
+  const elements=[$('#lyricPast'),$('#lyricPresent'),$('#lyricFuture')];
+  motion?.updateLyrics($('.lyric-drum'),elements,text,{
+    direction,
+    enabled:expanded&&tab==='home'&&!options.reducedMotion
+  });
+  if(!motion)elements.forEach((el,i)=>{el.textContent=text[i]});
+}
 /**
  * Select LRCLIB results strictly by metadata. Do not silently display the
  * unrelated first search result as if it matched the current track.
@@ -471,7 +493,19 @@ window.addEventListener('island:system-media',event=>{
   if(music.mode!=='system')return;
   showSystemSnapshot(event.detail.snapshot,event.detail.error)
 });
-function updatePlayer(){const pos=currentTime(),len=duration();$('#timeNow').textContent=formatTime(pos);$('#timeEnd').textContent=formatTime(len);$('#seek').value=len?Math.min(100,pos/len*100):0;$$('[data-player=toggle]').forEach(el=>{el.textContent=music.playing?'Ⅱ':'▶';el.setAttribute('aria-label',music.playing?'Пауза':'Воспроизвести')});updateLyrics()}
+function updatePlayer(){
+  const pos=currentTime(),len=duration();
+  $('#timeNow').textContent=formatTime(pos);
+  $('#timeEnd').textContent=formatTime(len);
+  $('#seek').value=len?Math.min(100,pos/len*100):0;
+  island.classList.toggle('music-playing',music.playing);
+  $$('[data-player=toggle]').forEach(el=>{
+    const icon=music.playing?'Ⅱ':'▶';
+    if(el.textContent!==icon)el.textContent=icon;
+    el.setAttribute('aria-label',music.playing?'Пауза':'Воспроизвести')
+  });
+  updateLyrics()
+}
 
 /* Procedural translucent waves extend DOWN from the actual lower window boundary. */
 const wave=$('#waveCanvas'),wc=wave.getContext('2d');let waveW=0,waveH=0,lastWave=0,waveRaf=0;
