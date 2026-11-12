@@ -76,8 +76,9 @@ pub fn desktop_mode_try(
     let generation = Arc::clone(&state.generation);
     let mode = Arc::clone(&state.mode);
 
-    // Tauri's WebviewWindow handle is Send + Sync and relays GUI changes
-    // through the runtime. Never touch raw Win32 HWNDs from this thread.
+    // Clone before launching the worker, so a failed thread spawn can
+    // still restore the window to a normal Z-order immediately.
+    let worker_window = window.clone();
     if let Err(error) = thread::Builder::new()
         .name("island-bottom-trial".into())
         .spawn(move || {
@@ -89,7 +90,7 @@ pub fn desktop_mode_try(
                 .compare_exchange(TRIAL, NORMAL, Ordering::AcqRel, Ordering::Acquire)
                 .is_ok()
             {
-                if window.set_always_on_bottom(false).is_err() {
+                if worker_window.set_always_on_bottom(false).is_err() {
                     // The window may have closed; the next launch still
                     // starts in Normal, so there's no persisted danger.
                 }
@@ -99,8 +100,9 @@ pub fn desktop_mode_try(
         // A failed timer must not leave a permanently hidden window.
         state.generation.fetch_add(1, Ordering::AcqRel);
         state.mode.store(NORMAL, Ordering::Release);
-        // The worker closure owns the window, so get a new window handle
-        // through the calling Tauri command in the implementation below.
+        window
+            .set_always_on_bottom(false)
+            .map_err(|restore| format!("Timer failed: {error}; restore failed: {restore}"))?;
         return Err(format!("Unable to arm auto-revert timer: {error}"));
     }
 
