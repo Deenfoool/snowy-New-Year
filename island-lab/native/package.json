@@ -1,0 +1,15 @@
+{
+  "name": "island-lab-native",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Tauri WebView2 desktop shell for Island Lab (experimental)",
+  "scripts": {
+    "prepare:web": "node scripts/prepare.mjs",
+    "dev": "tauri dev",
+    "build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0"
+  }
+}
