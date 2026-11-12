@@ -124,7 +124,10 @@ pub fn audio_capture_start(
 
     // Only join a *finished* prior worker; a normal running worker is blocked
     // from recreation by the atomic enabled flag.
-    let mut guard = state.worker.lock().map_err(|_| "Capture lock poisoned")?;
+    let mut guard = state.worker.lock().map_err(|_| {
+        state.enabled.store(false, Ordering::Release);
+        "Capture lock poisoned".to_owned()
+    })?;
     if let Some(old) = guard.take() {
         let _ = old.join();
     }
@@ -164,7 +167,7 @@ pub fn audio_capture_stop(state: tauri::State<'_, AudioCaptureState>) -> bool {
 
 #[cfg(windows)]
 mod platform {
-    use super::{analyze, AudioCaptureState, SpectrumFrame, FFT_WINDOW};
+    use super::{analyze, SpectrumFrame, FFT_WINDOW};
     use std::collections::VecDeque;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::{Duration, Instant};
@@ -269,7 +272,7 @@ mod platform {
 
 #[cfg(test)]
 mod tests {
-    use super::{analyze, SpectrumFrame, FFT_WINDOW, DECIMATED_RATE};
+    use super::{analyze, FFT_WINDOW, DECIMATED_RATE};
 
     #[test]
     fn silence_produces_zero_spectrum() {
