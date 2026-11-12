@@ -95,7 +95,7 @@ test('native window shell uses independent Tauri project and same frontend', () 
 });
 
 test('notes autosave does not use a singular selector as a collection', () => {
-  assert.doesNotMatch(js, /\$\('\.note-item'\)\.forEach/);
+  assert.doesNotMatch(js, /(^|[^$])\$\('\.note-item'\)\.forEach/m);
   assert.match(js, /\$\$\('\.note-item'\)\.forEach/);
 });
 
