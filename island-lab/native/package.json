@@ -8,7 +8,8 @@
     "prepare:web": "node scripts/prepare.mjs",
     "dev": "tauri dev",
     "build": "tauri build",
-    "test": "node --test ../tests/*.test.mjs ../tests/smoke.mjs"
+    "test": "node --test ../tests/smoke.mjs ../tests/system-media.test.mjs ../tests/audio-visualizer.test.mjs ../tests/desktop-mode.test.mjs ../tests/screenshot-save.test.mjs ../tests/motion.test.mjs",
+    "test:motion": "node --test ../tests/motion.test.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0"
