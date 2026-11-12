@@ -76,7 +76,7 @@ const tracks=[
  {name:'Blue Midnight',artist:'Island Lab — Demo',duration:48,notes:[220,261.63,329.63,392,369.99,329.63,261.63,196],lyrics:[[0,'За окном мерцает свет'],[6,'Небо медленно темнеет'],[12,'Слышен ровный ритм'],[18,'И волна уходит вниз'],[24,'Всё становится спокойней'],[30,'Новый день совсем близко'],[36,'Пусть эта мелодия звучит'],[42,'Пока город ещё спит']]}
 ];
 const audio=$('#audio');
-const music={demoIndex:0,mode:'demo',playing:false,ctx:null,analyser:null,source:null,bus:null,fft:null,timer:null,beat:0,nextBeat:0,start:0,offset:0,lyrics:tracks[0].lyrics.map(([at,text])=>({at,text})),lyricIndex:-1,blobUrl:null,lyricsRequest:0};
+const music={demoIndex:0,mode:'demo',playing:false,ctx:null,analyser:null,source:null,bus:null,fft:null,timer:null,beat:0,nextBeat:0,start:0,offset:0,lyrics:tracks[0].lyrics.map(([at,text])=>({at,text})),lyricIndex:-1,files:[],fileIndex:0,lyricsRequest:0};
 function activeTrack(){return tracks[music.demoIndex]}
 function duration(){return music.mode==='file'?(Number.isFinite(audio.duration)?audio.duration:0):activeTrack().duration}
 function currentTime(){return music.mode==='file'?(audio.currentTime||0):(music.playing?(performance.now()/1000-music.start):music.offset)}
@@ -87,13 +87,63 @@ function schedule(){if(!music.playing||music.mode!=='demo'||!music.ctx)return;wh
 async function play(){if(!audioInit())return;try{await music.ctx.resume();if(music.mode==='file'){if(!music.source){music.source=music.ctx.createMediaElementSource(audio);music.source.connect(music.bus)}await audio.play()}else{music.start=performance.now()/1000-music.offset;music.beat=Math.floor(music.offset/.35);music.nextBeat=music.ctx.currentTime;clearInterval(music.timer);music.timer=setInterval(schedule,75);schedule()}music.playing=true;updatePlayer();startWaveLoop()}catch(e){toast('Не удалось воспроизвести: '+e.message)}}
 function pause(){if(music.mode==='file')audio.pause();else music.offset=currentTime();music.playing=false;clearInterval(music.timer);updatePlayer();drawWave()}
 function toggle(){music.playing?pause():play()}
-function loadDemo(index){pause();music.mode='demo';music.demoIndex=(index+tracks.length)%tracks.length;music.offset=0;music.lyricIndex=-1;music.lyricsRequest++;music.lyrics=activeTrack().lyrics.map(([at,text])=>({at,text}));$('#trackName').textContent=activeTrack().name;$('#trackArtist').textContent=activeTrack().artist;$('#lyricsTrack').value=activeTrack().name;$('#lyricsArtist').value=activeTrack().artist;$('#lyricStatus').textContent='Встроенный демо-текст';updatePlayer()}
-function changeTrack(delta){if(music.mode==='file'){seek(delta>0?duration():0);return}const wasPlaying=music.playing;loadDemo(music.demoIndex+delta);if(wasPlaying)play()}
+function loadDemo(index){pause();music.mode='demo';music.demoIndex=(index+tracks.length)%tracks.length;music.offset=0;music.lyricIndex=-1;music.lyricsRequest++;music.lyrics=activeTrack().lyrics.map(([at,text])=>({at,text}));$('#trackName').textContent=activeTrack().name;$('#trackArtist').textContent=activeTrack().artist;$('#lyricsTrack').value=activeTrack().name;$('#lyricsArtist').value=activeTrack().artist;$('#lyricStatus').textContent='Встроенный демо-текст';$('#queueCount').textContent='DEMO '+(music.demoIndex+1)+'/'+tracks.length;updatePlayer()}
+function parseLocalTrack(filename){
+  const base=filename.replace(/\.[^.]+$/,'');
+  const match=base.match(/^(.+?)\s+[-–—]\s+(.+)$/);
+  return {artist:match?.[1]?.trim()||'',title:match?.[2]?.trim()||base};
+}
+async function useFileTrack(index,shouldPlay){
+  if(!music.files.length)return;
+  pause();
+  music.mode='file';
+  music.fileIndex=(index+music.files.length)%music.files.length;
+  const item=music.files[music.fileIndex];
+  audio.src=item.url;audio.load();
+  music.lyrics=[];music.lyricIndex=-1;music.lyricsRequest++;
+  const meta=parseLocalTrack(item.name);
+  $('#trackName').textContent=meta.title;
+  $('#trackArtist').textContent=meta.artist||'Локальный файл';
+  $('#lyricsTrack').value=meta.title;
+  $('#lyricsArtist').value=meta.artist;
+  $('#lyricStatus').textContent='Загрузи LRC или найди текст';
+  $('#queueCount').textContent=(music.fileIndex+1)+'/'+music.files.length;
+  updatePlayer();
+  if(shouldPlay)await play();
+}
+function changeTrack(delta){
+  const wasPlaying=music.playing;
+  if(music.mode==='file'){
+    if(music.files.length>1)useFileTrack(music.fileIndex+delta,wasPlaying);
+    else if(delta<0)seek(0);
+    else toast('Добавь несколько файлов, чтобы переключать треки');
+    return;
+  }
+  loadDemo(music.demoIndex+delta);
+  if(wasPlaying)play()
+}
 function seek(time){time=Math.max(0,Math.min(duration()||0,time));if(music.mode==='file')audio.currentTime=time;else{music.offset=time;if(music.playing){music.start=performance.now()/1000-time;music.beat=Math.floor(time/.35);music.nextBeat=music.ctx.currentTime}}updatePlayer()}
 $$('[data-player]').forEach(el=>el.addEventListener('click',e=>{e.stopPropagation();const a=el.dataset.player;if(a==='toggle')toggle();else changeTrack(a==='next'?1:-1)}));
 $('#seek').addEventListener('input',e=>seek(+e.target.value/100*duration()));
-$('#musicFile').addEventListener('change',async e=>{const file=e.target.files?.[0];if(!file)return;pause();if(music.blobUrl)URL.revokeObjectURL(music.blobUrl);music.blobUrl=URL.createObjectURL(file);music.mode='file';audio.src=music.blobUrl;music.lyrics=[];music.lyricIndex=-1;music.lyricsRequest++;const filename=file.name.replace(/\.[^.]+$/,'');const match=filename.match(/^(.+?)\s+[-–—]\s+(.+)$/);const artist=match?.[1]?.trim()||'';const title=match?.[2]?.trim()||filename;$('#trackName').textContent=title;$('#trackArtist').textContent=artist||'Локальный файл';$('#lyricsTrack').value=title;$('#lyricsArtist').value=artist;$('#lyricStatus').textContent='Загрузи LRC';audio.load();await play();toast('Трек загружен. Для слов песни добавь файл LRC')});
-audio.addEventListener('ended',()=>{music.playing=false;updatePlayer();drawWave()});
+$('#musicFile').addEventListener('change',async e=>{
+  const files=Array.from(e.target.files||[])
+    .filter(file=>file.type.startsWith('audio/')).slice(0,50);
+  if(!files.length)return;
+  pause();
+  for(const item of music.files)URL.revokeObjectURL(item.url);
+  music.files=files.map(file=>({name:file.name,url:URL.createObjectURL(file)}));
+  music.fileIndex=0;
+  await useFileTrack(0,true);
+  toast(music.files.length>1?'Очередь загружена: '+music.files.length+' треков':'Трек загружен');
+  e.target.value='';
+});
+audio.addEventListener('ended',()=>{
+  if(music.mode==='file'&&music.files.length>1){
+    useFileTrack(music.fileIndex+1,true);
+    return;
+  }
+  music.playing=false;updatePlayer();drawWave()
+});
 function parseLRC(text){const items=[];for(const line of text.replace(/\r/g,'').split('\n')){const lyric=line.replace(/\[(?:\d+:\d+(?:\.\d+)?|[^\]]+)\]/g,'').trim();for(const m of line.matchAll(/\[(\d+):(\d+(?:\.\d+)?)\]/g)){if(lyric)items.push({at:+m[1]*60+ +m[2],text:lyric})}}return items.sort((a,b)=>a.at-b.at)}
 $('#lyricsFile').addEventListener('change',async e=>{const file=e.target.files?.[0];if(!file)return;const data=parseLRC(await file.text());if(!data.length){toast('Не найдены строки [mm:ss.xx]');return}music.lyricsRequest++;music.lyrics=data;music.lyricIndex=-1;$('#lyricStatus').textContent=file.name;updateLyrics();toast('LRC загружен: '+data.length+' строк')});
 function updateLyrics(){const time=Math.max(0,currentTime()-options.lyricsOffset);const lines=music.lyrics;let i=-1;for(let x=0;x<lines.length;x++){if(lines[x].at<=time)i=x;else break}if(i===music.lyricIndex)return;music.lyricIndex=i;const set=(id,text)=>{const el=$(id);el.textContent=text||'—';el.classList.remove('animate');void el.offsetWidth;el.classList.add('animate')};set('#lyricPast',i>=1?lines[i-1].text:'—');set('#lyricPresent',i>=0?lines[i].text:'Музыка — часть атмосферы');set('#lyricFuture',lines[i+1]?.text||'—')}
@@ -510,4 +560,4 @@ $('#quitNative').addEventListener('click',()=>{
   })
 });
 function clock(){const now=new Date();$('#desktopClock').textContent=now.toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});updatePlayer()}
-setInterval(clock,1000);clock();emptyCanvas();updateEditor();renderNotes();applyOptions();$('#lyricsTrack').value=activeTrack().name;$('#lyricsArtist').value=activeTrack().artist;updatePlayer();setExpanded(false);updateSnowLoop();
+setInterval(clock,1000);clock();emptyCanvas();updateEditor();renderNotes();applyOptions();$('#lyricsTrack').value=activeTrack().name;$('#lyricsArtist').value=activeTrack().artist;$('#queueCount').textContent='DEMO 1/'+tracks.length;updatePlayer();setExpanded(false);updateSnowLoop();
