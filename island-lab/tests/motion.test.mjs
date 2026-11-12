@@ -203,3 +203,25 @@ test('snow uses real frame delta and does not stay at old 22fps',()=>{
   assert.match(app,/flake\.v\*24\*frameSeconds\/h/);
   assert.doesNotMatch(app,/time-snowFrame>=44/);
 });
+
+test('window capsule clips content but downward waveform escapes as a sibling',()=>{
+  assert.match(html, /<\/div>\s*<canvas id="waveCanvas" aria-hidden="true"><\/canvas>\s*<\/section>/);
+  assert.match(css,/\.island\{overflow:hidden\}/);
+  assert.match(css,/\.island-shell>#waveCanvas\{/);
+  assert.match(css,/\.island-shell>\.island\.collapsed\+#waveCanvas\{display:none\}/);
+  assert.match(app,/--wave-width/);
+  assert.match(app,/borderObserver\.observe\(island\)/);
+});
+
+test('motion benchmark is on-demand and does not poll in the background',()=>{
+  assert.match(app,/benchmarkButton\.addEventListener\('click'/);
+  assert.match(app,/benchmarkRunning=true/);
+  assert.match(app,/if\(document\.hidden&&benchmarkRunning\)/);
+  assert.doesNotMatch(app,/requestAnimationFrame\(sample\);\s*\/\* Live weather/);
+});
+
+test('screen redraws are throttled without losing the 60fps waveform budget',()=>{
+  assert.match(app,/if\(now-lastWave>=14\)/);
+  assert.match(app,/if\(now-lastProgress>=90\)/);
+  assert.match(app,/if\(!hasSource&&!waveHasTail\(\)\)return/);
+});
