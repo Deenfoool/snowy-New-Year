@@ -44,6 +44,11 @@ function setOption(k,v){
 }
 const shell=$('#shell'),island=$('#island'),panel=$('#expandedPanel');
 const motion=window.IslandMotion;
+function animateLabel(selector,value){
+  const element=$(selector);
+  if(motion)motion.animateValue(element,value,{enabled:expanded&&!options.reducedMotion});
+  else if(element)element.textContent=String(value??'')
+}
 let expanded=false,tab='home',morphSequence=0,morphTimer=0;
 const nav=$('.tabs');
 const navIndicator=document.createElement('span');
@@ -221,7 +226,7 @@ function schedule(){if(!music.playing||music.mode!=='demo'||!music.ctx)return;wh
 async function play(){if(music.mode==='system'){await controlSystemMusic('play');return}if(!audioInit())return;try{await music.ctx.resume();if(music.mode==='file'){if(!music.source){music.source=music.ctx.createMediaElementSource(audio);music.source.connect(music.bus)}await audio.play()}else{music.start=performance.now()/1000-music.offset;music.beat=Math.floor(music.offset/.35);music.nextBeat=music.ctx.currentTime;clearInterval(music.timer);music.timer=setInterval(schedule,75);schedule()}music.playing=true;updatePlayer();startWaveLoop()}catch(e){toast('Не удалось воспроизвести: '+e.message)}}
 function pause(){if(music.mode==='system'){controlSystemMusic('pause');return}if(music.mode==='file')audio.pause();else music.offset=currentTime();music.playing=false;clearInterval(music.timer);updatePlayer();drawWave()}
 function toggle(){if(music.mode==='system'){controlSystemMusic('toggle');return}music.playing?pause():play()}
-function loadDemo(index){pause();music.mode='demo';music.demoIndex=(index+tracks.length)%tracks.length;music.offset=0;music.lyricIndex=-1;music.lyricsRequest++;music.lyrics=activeTrack().lyrics.map(([at,text])=>({at,text}));$('#trackName').textContent=activeTrack().name;$('#trackArtist').textContent=activeTrack().artist;$('#lyricsTrack').value=activeTrack().name;$('#lyricsArtist').value=activeTrack().artist;$('#lyricStatus').textContent='Встроенный демо-текст';$('#queueCount').textContent='DEMO '+(music.demoIndex+1)+'/'+tracks.length;updatePlayer()}
+function loadDemo(index){pause();music.mode='demo';music.demoIndex=(index+tracks.length)%tracks.length;music.offset=0;music.lyricIndex=-1;music.lyricsRequest++;music.lyrics=activeTrack().lyrics.map(([at,text])=>({at,text}));animateLabel('#trackName',activeTrack().name);animateLabel('#trackArtist',activeTrack().artist);$('#lyricsTrack').value=activeTrack().name;$('#lyricsArtist').value=activeTrack().artist;$('#lyricStatus').textContent='Встроенный демо-текст';$('#queueCount').textContent='DEMO '+(music.demoIndex+1)+'/'+tracks.length;updatePlayer()}
 function parseLocalTrack(filename){
   const base=filename.replace(/\.[^.]+$/,'');
   const match=base.match(/^(.+?)\s+[-–—]\s+(.+)$/);
@@ -236,8 +241,8 @@ async function useFileTrack(index,shouldPlay){
   audio.src=item.url;audio.load();
   music.lyrics=[];music.lyricIndex=-1;music.lyricsRequest++;
   const meta=parseLocalTrack(item.name);
-  $('#trackName').textContent=meta.title;
-  $('#trackArtist').textContent=meta.artist||'Локальный файл';
+  animateLabel('#trackName',meta.title);
+  animateLabel('#trackArtist',meta.artist||'Локальный файл');
   $('#lyricsTrack').value=meta.title;
   $('#lyricsArtist').value=meta.artist;
   $('#lyricStatus').textContent='Загрузи LRC или найди текст';
@@ -474,8 +479,8 @@ function showSystemSnapshot(snapshot,error){
     systemStatus.textContent='Нет активного совместимого плеера';
     music.playing=false;music.systemPosition=0;music.systemDuration=0;
     drawWave();
-    $('#trackName').textContent='Ожидание музыки Windows';
-    $('#trackArtist').textContent='Запусти совместимый проигрыватель';
+    animateLabel('#trackName','Ожидание музыки Windows');
+    animateLabel('#trackArtist','Запусти совместимый проигрыватель');
     $('#queueCount').textContent='WINDOWS';
     updatePlayer();return
   }
@@ -483,8 +488,8 @@ function showSystemSnapshot(snapshot,error){
   if(key!==music.systemTrackKey){
     music.systemTrackKey=key;
     music.lyricsRequest++;music.lyrics=[];music.lyricIndex=-1;
-    $('#trackName').textContent=snapshot.title||'Без названия';
-    $('#trackArtist').textContent=snapshot.artist||'Неизвестный исполнитель';
+    animateLabel('#trackName',snapshot.title||'Без названия');
+    animateLabel('#trackArtist',snapshot.artist||'Неизвестный исполнитель');
     $('#lyricsTrack').value=snapshot.title||'';
     $('#lyricsArtist').value=snapshot.artist||'';
     $('#lyricStatus').textContent='Найди текст через LRCLIB';
@@ -667,7 +672,7 @@ function startWaveLoop(){
 }
 
 /* Live weather is an explicit user action; browser-only Open-Meteo fetch. */
-function updateWeather({temp,wind,description,city,live}){const t=(temp>0?'+':temp<0?'−':'')+Math.round(Math.abs(temp))+'°';const symbol=temp<=0?'❄':description.includes('Дожд')?'☂':'☁';$('#weatherTemp').textContent=t;$('#miniTemperature').textContent=t;$('#weatherIcon').textContent=symbol;$('#miniWeatherIcon').textContent=symbol;$('#weatherText').textContent=description;$('#weatherCity').textContent=city;$('#weatherWind').textContent='Ветер '+Math.round(wind/3.6*10)/10+' м/с';$('#weatherSource').textContent=live?'LIVE':'ДЕМО';$('.weather-demo-dot').textContent=live?'LIVE':'DEMO';$('#panelState').textContent=live?'Погода обновлена':'Демо-режим'}
+function updateWeather({temp,wind,description,city,live}){const t=(temp>0?'+':temp<0?'−':'')+Math.round(Math.abs(temp))+'°';const symbol=temp<=0?'❄':description.includes('Дожд')?'☂':'☁';animateLabel('#weatherTemp',t);animateLabel('#miniTemperature',t);animateLabel('#weatherIcon',symbol);animateLabel('#miniWeatherIcon',symbol);$('#weatherText').textContent=description;$('#weatherCity').textContent=city;$('#weatherWind').textContent='Ветер '+Math.round(wind/3.6*10)/10+' м/с';$('#weatherSource').textContent=live?'LIVE':'ДЕМО';$('.weather-demo-dot').textContent=live?'LIVE':'DEMO';$('#panelState').textContent=live?'Погода обновлена':'Демо-режим'}
 function weatherCode(code){if([0,1].includes(code))return 'Ясно';if([2,3].includes(code))return 'Облачно';if([45,48].includes(code))return 'Туман';if([51,53,55,61,63,65,80,81,82].includes(code))return 'Дождь';if([71,73,75,77,85,86].includes(code))return 'Снег';if([95,96,99].includes(code))return 'Гроза';return 'Переменная облачность'}
 async function fetchWeather(){const city=$('#weatherInput').value.trim();if(!city){toast('Введи город в настройках');showTab('settings');return}$('#weatherMessage').textContent='Загрузка...';try{const geo=await fetch('https://geocoding-api.open-meteo.com/v1/search?name='+encodeURIComponent(city)+'&count=1&language=ru&format=json').then(r=>{if(!r.ok)throw Error('Ошибка геокодирования');return r.json()});const loc=geo.results?.[0];if(!loc)throw Error('Город не найден');const query=new URLSearchParams({latitude:loc.latitude,longitude:loc.longitude,current:'temperature_2m,weather_code,wind_speed_10m',timezone:'auto'});const data=await fetch('https://api.open-meteo.com/v1/forecast?'+query).then(r=>{if(!r.ok)throw Error('Ошибка сервиса погоды');return r.json()});const current=data.current;if(!current)throw Error('Данные не получены');updateWeather({temp:current.temperature_2m,wind:current.wind_speed_10m,description:weatherCode(current.weather_code),city:loc.name,live:true});options.weatherCity=city;persist();$('#weatherMessage').textContent='Погода получена от Open-Meteo. Время: '+current.time;toast('Погода обновлена')}catch(err){$('#weatherMessage').textContent='Не удалось загрузить: '+err.message;toast('Погода недоступна — остаются прежние данные')}}
 $('#weatherSearch').addEventListener('click',fetchWeather);$('#refreshWeather').addEventListener('click',()=>{if(options.weatherCity)fetchWeather();else showTab('settings')});
