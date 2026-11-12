@@ -951,19 +951,27 @@ $('#deleteNote').addEventListener('click',()=>{if(notes.length<2)return;notes=no
 const snow=document.createElement('canvas');snow.id='previewSnow';Object.assign(snow.style,{position:'absolute',inset:'0',width:'100%',height:'100%',pointerEvents:'none',zIndex:'1'});$('#desktop').append(snow);const sc=snow.getContext('2d');const flakes=Array.from({length:90},()=>({x:Math.random(),y:Math.random(),r:.55+Math.random()*2.1,v:.12+Math.random()*.52}));let snowFrame=0,snowRaf=0;
 function snowEnabled(){return options.snow&&options.backgroundSnow&&!options.reducedMotion&&!nativeShell&&!document.hidden&&options.snowIntensity>0}
 function renderSnow(time){
-  snowRaf=0;if(!snowEnabled())return;
-  if(time-snowFrame>=44){
-    snowFrame=time;const w=innerWidth,h=innerHeight,dpr=Math.min(devicePixelRatio||1,2);
-    if(snow.width!==Math.round(w*dpr)||snow.height!==Math.round(h*dpr)){
-      snow.width=Math.round(w*dpr);snow.height=Math.round(h*dpr);
-      sc.setTransform(dpr,0,0,dpr,0,0)
-    }
-    sc.clearRect(0,0,w,h);sc.fillStyle='rgba(218,241,255,.74)';
-    for(const flake of flakes.slice(0,Math.floor(flakes.length*options.snowIntensity/100))){
-      flake.y+=flake.v/h;flake.x+=(Math.sin(time*.0002+flake.y*12)*.13)/w;
-      if(flake.y>1){flake.y=0;flake.x=Math.random()}
-      sc.beginPath();sc.arc(flake.x*w,flake.y*h,flake.r,0,Math.PI*2);sc.fill()
-    }
+  snowRaf=0;
+  if(!snowEnabled())return;
+  const w=innerWidth,h=innerHeight,dpr=Math.min(devicePixelRatio||1,2);
+  const frameSeconds=snowFrame?Math.max(0,Math.min(.05,(time-snowFrame)/1000)):1/60;
+  snowFrame=time;
+  if(snow.width!==Math.round(w*dpr)||snow.height!==Math.round(h*dpr)){
+    snow.width=Math.round(w*dpr);snow.height=Math.round(h*dpr);
+    sc.setTransform(dpr,0,0,dpr,0,0)
+  }
+  sc.clearRect(0,0,w,h);
+  sc.fillStyle='rgba(218,241,255,.74)';
+  const count=Math.floor(flakes.length*options.snowIntensity/100);
+  for(let i=0;i<count;i++){
+    const flake=flakes[i];
+    // Time-based motion yields the same speed on 60/120/144 Hz screens.
+    flake.y+=flake.v*24*frameSeconds/h;
+    flake.x+=Math.sin(time*.0002+flake.y*12)*.13*24*frameSeconds/w;
+    if(flake.y>1){flake.y=0;flake.x=Math.random()}
+    if(flake.x>1)flake.x=0;
+    if(flake.x<0)flake.x=1;
+    sc.beginPath();sc.arc(flake.x*w,flake.y*h,flake.r,0,Math.PI*2);sc.fill()
   }
   snowRaf=requestAnimationFrame(renderSnow)
 }
