@@ -19,7 +19,7 @@ function persist(){try{localStorage.setItem(KEY,JSON.stringify(options))}catch{}
 function toast(message){const el=$('#toast');el.textContent=message;el.classList.add('visible');clearTimeout(toast.timer);toast.timer=setTimeout(()=>el.classList.remove('visible'),3400)}
 function rgb(hex){const h=hex.replace('#','');const v=parseInt(h,16);return [(v>>16)&255,(v>>8)&255,v&255].join(',')}
 function applyOptions(){document.documentElement.style.setProperty('--accent',options.accent);document.documentElement.style.setProperty('--accent-rgb',rgb(options.accent));$('#accentColor').value=options.accent;$('#wavePower').value=options.wavePower;$('#waveValue').textContent=options.wavePower+'%';$('#waveToggle').checked=options.waveEnabled;$('#reducedMotion').checked=options.reducedMotion;$('#backgroundSnow').checked=options.backgroundSnow;$('#snowToggle').checked=options.snow;$('#capsToggle').checked=options.caps;$('#snowmenToggle').checked=options.snowmen;$('#snowIntensity').value=options.snowIntensity;$('#snowPercent').textContent=options.snowIntensity+'%';$('#weatherInput').value=options.weatherCity||'';$('#lyricsOffset').textContent=(options.lyricsOffset>0?'+':'')+options.lyricsOffset.toFixed(1)+' с';if(options.offset&&!nativeShell)placeIsland(options.offset.left,options.offset.top)}
-function setOption(k,v){options[k]=v;persist();applyOptions();if(['waveEnabled','reducedMotion','wavePower'].includes(k)){drawWave();startWaveLoop()}}
+function setOption(k,v){options[k]=v;persist();applyOptions();if(['waveEnabled','reducedMotion','wavePower'].includes(k)){drawWave();startWaveLoop()}if(['snow','backgroundSnow','reducedMotion','snowIntensity'].includes(k))updateSnowLoop()}
 const shell=$('#shell'),island=$('#island'),panel=$('#expandedPanel');
 let expanded=false,tab='home';
 function setExpanded(value){
@@ -161,7 +161,7 @@ function resizeWave(){const r=island.getBoundingClientRect(),dpr=Math.min(device
 function clearWave(){wc.clearRect(0,0,waveW,waveH)}
 function drawWave(now=0){if(!expanded)return;if(Math.abs(island.getBoundingClientRect().width-waveW)>2)resizeWave();clearWave();const powered=options.waveEnabled&&music.playing&&!options.reducedMotion;const level=powered&&music.analyser?(music.analyser.getByteFrequencyData(music.fft),music.fft.reduce((a,b)=>a+b,0)/(music.fft.length*255)):0;const power=powered?Math.min(1,level*2.7)*(options.wavePower/100):0;const base=powered?3:0;const points=[];for(let x=0;x<=waveW;x+=3){const t=x/waveW;const taper=Math.pow(Math.sin(Math.PI*t),.7);const bin=music.fft?.[Math.min(music.fft.length-1,Math.floor(t*32))]||0;const detail=bin/255;const oscillate=Math.sin(t*32+now*.009)*.54+Math.sin(t*59-now*.012)*.22+Math.sin(t*110+now*.016)*.11;const drop=base+taper*power*(10+22*detail+10*oscillate);points.push([x,Math.max(0,drop)])}points.push([waveW,0]);const fill=getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()||'#8dd9f6';const grad=wc.createLinearGradient(0,0,0,37);grad.addColorStop(0,'#182b3e');grad.addColorStop(.55,'#263f55');grad.addColorStop(1,fill);wc.beginPath();wc.moveTo(0,0);for(const [x,y] of points)wc.lineTo(x,y);wc.closePath();wc.fillStyle=grad;wc.fill();if(power>0){wc.strokeStyle='rgba(192,235,252,.56)';wc.lineWidth=.7;wc.stroke()}}
 function frame(now){waveRaf=0;if(!expanded||!music.playing||options.reducedMotion||!options.waveEnabled){drawWave();return}if(now-lastWave>32){drawWave(now);if(music.mode==='demo'&&currentTime()>=duration()){music.offset=0;music.start=performance.now()/1000;music.nextBeat=music.ctx.currentTime;music.beat=0}updatePlayer();lastWave=now}startWaveLoop()}
-function startWaveLoop(){if(waveRaf||!expanded||!music.playing||options.reducedMotion||!options.waveEnabled)return;waveRaf=requestAnimationFrame(frame)}
+function startWaveLoop(){if(waveRaf||!expanded||!music.playing||options.reducedMotion||!options.waveEnabled||document.hidden)return;waveRaf=requestAnimationFrame(frame)}
 
 /* Live weather is an explicit user action; browser-only Open-Meteo fetch. */
 function updateWeather({temp,wind,description,city,live}){const t=(temp>0?'+':temp<0?'−':'')+Math.round(Math.abs(temp))+'°';const symbol=temp<=0?'❄':description.includes('Дожд')?'☂':'☁';$('#weatherTemp').textContent=t;$('#miniTemperature').textContent=t;$('#weatherIcon').textContent=symbol;$('#miniWeatherIcon').textContent=symbol;$('#weatherText').textContent=description;$('#weatherCity').textContent=city;$('#weatherWind').textContent='Ветер '+Math.round(wind/3.6*10)/10+' м/с';$('#weatherSource').textContent=live?'LIVE':'ДЕМО';$('.weather-demo-dot').textContent=live?'LIVE':'DEMO';$('#panelState').textContent=live?'Погода обновлена':'Демо-режим'}
@@ -413,10 +413,37 @@ $('#addNote').addEventListener('click',()=>{const n={id:Date.now(),title:'Нов
 $('#deleteNote').addEventListener('click',()=>{if(notes.length<2)return;notes=notes.filter(x=>x.id!==selectedNote);selectedNote=notes[0].id;storeNotes();renderNotes();toast('Заметка удалена')});
 
 /* Snow effect behind the widget is isolated from the Snowy New Year process. */
-const snow=document.createElement('canvas');snow.id='previewSnow';Object.assign(snow.style,{position:'absolute',inset:'0',width:'100%',height:'100%',pointerEvents:'none',zIndex:'1'});$('#desktop').append(snow);const sc=snow.getContext('2d');const flakes=Array.from({length:90},()=>({x:Math.random(),y:Math.random(),r:.55+Math.random()*2.1,v:.12+Math.random()*.52}));let snowFrame=0;
-function renderSnow(time){requestAnimationFrame(renderSnow);if(time-snowFrame<44)return;snowFrame=time;const w=innerWidth,h=innerHeight,dpr=Math.min(devicePixelRatio||1,2);if(snow.width!==Math.round(w*dpr)||snow.height!==Math.round(h*dpr)){snow.width=Math.round(w*dpr);snow.height=Math.round(h*dpr);sc.setTransform(dpr,0,0,dpr,0,0)}sc.clearRect(0,0,w,h);if(!options.snow||!options.backgroundSnow||options.reducedMotion)return;sc.fillStyle='rgba(218,241,255,.74)';for(const f of flakes.slice(0,Math.floor(flakes.length*options.snowIntensity/100))){f.y+=f.v/h;f.x+=(Math.sin(time*.0002+f.y*12)*.13)/w;if(f.y>1){f.y=0;f.x=Math.random()}sc.beginPath();sc.arc(f.x*w,f.y*h,f.r,0,Math.PI*2);sc.fill()}}
-requestAnimationFrame(renderSnow);
+const snow=document.createElement('canvas');snow.id='previewSnow';Object.assign(snow.style,{position:'absolute',inset:'0',width:'100%',height:'100%',pointerEvents:'none',zIndex:'1'});$('#desktop').append(snow);const sc=snow.getContext('2d');const flakes=Array.from({length:90},()=>({x:Math.random(),y:Math.random(),r:.55+Math.random()*2.1,v:.12+Math.random()*.52}));let snowFrame=0,snowRaf=0;
+function snowEnabled(){return options.snow&&options.backgroundSnow&&!options.reducedMotion&&!nativeShell&&!document.hidden&&options.snowIntensity>0}
+function renderSnow(time){
+  snowRaf=0;if(!snowEnabled())return;
+  if(time-snowFrame>=44){
+    snowFrame=time;const w=innerWidth,h=innerHeight,dpr=Math.min(devicePixelRatio||1,2);
+    if(snow.width!==Math.round(w*dpr)||snow.height!==Math.round(h*dpr)){
+      snow.width=Math.round(w*dpr);snow.height=Math.round(h*dpr);
+      sc.setTransform(dpr,0,0,dpr,0,0)
+    }
+    sc.clearRect(0,0,w,h);sc.fillStyle='rgba(218,241,255,.74)';
+    for(const flake of flakes.slice(0,Math.floor(flakes.length*options.snowIntensity/100))){
+      flake.y+=flake.v/h;flake.x+=(Math.sin(time*.0002+flake.y*12)*.13)/w;
+      if(flake.y>1){flake.y=0;flake.x=Math.random()}
+      sc.beginPath();sc.arc(flake.x*w,flake.y*h,flake.r,0,Math.PI*2);sc.fill()
+    }
+  }
+  snowRaf=requestAnimationFrame(renderSnow)
+}
+function updateSnowLoop(){
+  if(!snowEnabled()){
+    if(snowRaf)cancelAnimationFrame(snowRaf);snowRaf=0;
+    if(snow.width)sc.clearRect(0,0,snow.width,snow.height);return
+  }
+  if(!snowRaf)snowRaf=requestAnimationFrame(renderSnow)
+}
+document.addEventListener('visibilitychange',()=>{
+  updateSnowLoop();if(!document.hidden)startWaveLoop()
+});
+
 for(const [id,key,transform] of [['accentColor','accent',v=>v],['wavePower','wavePower',v=>+v],['waveToggle','waveEnabled',v=>v],['reducedMotion','reducedMotion',v=>v],['backgroundSnow','backgroundSnow',v=>v],['snowToggle','snow',v=>v],['capsToggle','caps',v=>v],['snowmenToggle','snowmen',v=>v],['snowIntensity','snowIntensity',v=>+v]]){$('#'+id).addEventListener(id==='accentColor'||id==='wavePower'||id==='snowIntensity'?'input':'change',e=>setOption(key,e.target.type==='checkbox'?e.target.checked:transform(e.target.value)))}
 $('#weatherInput').addEventListener('change',e=>{options.weatherCity=e.target.value.trim();persist()});
 function clock(){const now=new Date();$('#desktopClock').textContent=now.toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});updatePlayer()}
-setInterval(clock,1000);clock();emptyCanvas();updateEditor();renderNotes();applyOptions();$('#lyricsTrack').value=activeTrack().name;$('#lyricsArtist').value=activeTrack().artist;updatePlayer();setExpanded(false);
+setInterval(clock,1000);clock();emptyCanvas();updateEditor();renderNotes();applyOptions();$('#lyricsTrack').value=activeTrack().name;$('#lyricsArtist').value=activeTrack().artist;updatePlayer();setExpanded(false);updateSnowLoop();
