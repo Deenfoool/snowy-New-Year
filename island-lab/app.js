@@ -2,12 +2,12 @@
 'use strict';
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const KEY='island-lab-v1', NOTES='island-lab-notes-v1';
-const defaults={accent:'#8dd9f6',wavePower:65,waveEnabled:true,reducedMotion:false,backgroundSnow:true,snow:true,caps:true,snowmen:true,snowIntensity:42,weatherCity:'',offset:null};
+const defaults={accent:'#8dd9f6',wavePower:65,waveEnabled:true,reducedMotion:false,backgroundSnow:true,snow:true,caps:true,snowmen:true,snowIntensity:42,weatherCity:'',lyricsOffset:0,offset:null};
 const options=(()=>{try{return {...defaults,...JSON.parse(localStorage.getItem(KEY)||'{}')}}catch{return {...defaults}}})();
 function persist(){try{localStorage.setItem(KEY,JSON.stringify(options))}catch{}}
 function toast(message){const el=$('#toast');el.textContent=message;el.classList.add('visible');clearTimeout(toast.timer);toast.timer=setTimeout(()=>el.classList.remove('visible'),3400)}
 function rgb(hex){const h=hex.replace('#','');const v=parseInt(h,16);return [(v>>16)&255,(v>>8)&255,v&255].join(',')}
-function applyOptions(){document.documentElement.style.setProperty('--accent',options.accent);document.documentElement.style.setProperty('--accent-rgb',rgb(options.accent));$('#accentColor').value=options.accent;$('#wavePower').value=options.wavePower;$('#waveValue').textContent=options.wavePower+'%';$('#waveToggle').checked=options.waveEnabled;$('#reducedMotion').checked=options.reducedMotion;$('#backgroundSnow').checked=options.backgroundSnow;$('#snowToggle').checked=options.snow;$('#capsToggle').checked=options.caps;$('#snowmenToggle').checked=options.snowmen;$('#snowIntensity').value=options.snowIntensity;$('#snowPercent').textContent=options.snowIntensity+'%';$('#weatherInput').value=options.weatherCity||'';if(options.offset)placeIsland(options.offset.left,options.offset.top)}
+function applyOptions(){document.documentElement.style.setProperty('--accent',options.accent);document.documentElement.style.setProperty('--accent-rgb',rgb(options.accent));$('#accentColor').value=options.accent;$('#wavePower').value=options.wavePower;$('#waveValue').textContent=options.wavePower+'%';$('#waveToggle').checked=options.waveEnabled;$('#reducedMotion').checked=options.reducedMotion;$('#backgroundSnow').checked=options.backgroundSnow;$('#snowToggle').checked=options.snow;$('#capsToggle').checked=options.caps;$('#snowmenToggle').checked=options.snowmen;$('#snowIntensity').value=options.snowIntensity;$('#snowPercent').textContent=options.snowIntensity+'%';$('#weatherInput').value=options.weatherCity||'';$('#lyricsOffset').textContent=(options.lyricsOffset>0?'+':'')+options.lyricsOffset.toFixed(1)+' с';if(options.offset)placeIsland(options.offset.left,options.offset.top)}
 function setOption(k,v){options[k]=v;persist();applyOptions();if(['waveEnabled','reducedMotion','wavePower'].includes(k)){drawWave();startWaveLoop()}}
 const shell=$('#shell'),island=$('#island'),panel=$('#expandedPanel');
 let expanded=false,tab='home';
@@ -35,7 +35,7 @@ const tracks=[
  {name:'Blue Midnight',artist:'Island Lab — Demo',duration:48,notes:[220,261.63,329.63,392,369.99,329.63,261.63,196],lyrics:[[0,'За окном мерцает свет'],[6,'Небо медленно темнеет'],[12,'Слышен ровный ритм'],[18,'И волна уходит вниз'],[24,'Всё становится спокойней'],[30,'Новый день совсем близко'],[36,'Пусть эта мелодия звучит'],[42,'Пока город ещё спит']]}
 ];
 const audio=$('#audio');
-const music={demoIndex:0,mode:'demo',playing:false,ctx:null,analyser:null,source:null,bus:null,fft:null,timer:null,beat:0,nextBeat:0,start:0,offset:0,lyrics:tracks[0].lyrics.map(([at,text])=>({at,text})),lyricIndex:-1,blobUrl:null};
+const music={demoIndex:0,mode:'demo',playing:false,ctx:null,analyser:null,source:null,bus:null,fft:null,timer:null,beat:0,nextBeat:0,start:0,offset:0,lyrics:tracks[0].lyrics.map(([at,text])=>({at,text})),lyricIndex:-1,blobUrl:null,lyricsRequest:0};
 function activeTrack(){return tracks[music.demoIndex]}
 function duration(){return music.mode==='file'?(Number.isFinite(audio.duration)?audio.duration:0):activeTrack().duration}
 function currentTime(){return music.mode==='file'?(audio.currentTime||0):(music.playing?(performance.now()/1000-music.start):music.offset)}
@@ -46,16 +46,79 @@ function schedule(){if(!music.playing||music.mode!=='demo'||!music.ctx)return;wh
 async function play(){if(!audioInit())return;try{await music.ctx.resume();if(music.mode==='file'){if(!music.source){music.source=music.ctx.createMediaElementSource(audio);music.source.connect(music.bus)}await audio.play()}else{music.start=performance.now()/1000-music.offset;music.beat=Math.floor(music.offset/.35);music.nextBeat=music.ctx.currentTime;clearInterval(music.timer);music.timer=setInterval(schedule,75);schedule()}music.playing=true;updatePlayer();startWaveLoop()}catch(e){toast('Не удалось воспроизвести: '+e.message)}}
 function pause(){if(music.mode==='file')audio.pause();else music.offset=currentTime();music.playing=false;clearInterval(music.timer);updatePlayer();drawWave()}
 function toggle(){music.playing?pause():play()}
-function loadDemo(index){pause();music.mode='demo';music.demoIndex=(index+tracks.length)%tracks.length;music.offset=0;music.lyricIndex=-1;music.lyrics=activeTrack().lyrics.map(([at,text])=>({at,text}));$('#trackName').textContent=activeTrack().name;$('#trackArtist').textContent=activeTrack().artist;$('#lyricStatus').textContent='Встроенный демо-текст';updatePlayer()}
+function loadDemo(index){pause();music.mode='demo';music.demoIndex=(index+tracks.length)%tracks.length;music.offset=0;music.lyricIndex=-1;music.lyricsRequest++;music.lyrics=activeTrack().lyrics.map(([at,text])=>({at,text}));$('#trackName').textContent=activeTrack().name;$('#trackArtist').textContent=activeTrack().artist;$('#lyricsTrack').value=activeTrack().name;$('#lyricsArtist').value=activeTrack().artist;$('#lyricStatus').textContent='Встроенный демо-текст';updatePlayer()}
 function changeTrack(delta){if(music.mode==='file'){seek(delta>0?duration():0);return}const wasPlaying=music.playing;loadDemo(music.demoIndex+delta);if(wasPlaying)play()}
 function seek(time){time=Math.max(0,Math.min(duration()||0,time));if(music.mode==='file')audio.currentTime=time;else{music.offset=time;if(music.playing){music.start=performance.now()/1000-time;music.beat=Math.floor(time/.35);music.nextBeat=music.ctx.currentTime}}updatePlayer()}
 $$('[data-player]').forEach(el=>el.addEventListener('click',e=>{e.stopPropagation();const a=el.dataset.player;if(a==='toggle')toggle();else changeTrack(a==='next'?1:-1)}));
 $('#seek').addEventListener('input',e=>seek(+e.target.value/100*duration()));
-$('#musicFile').addEventListener('change',async e=>{const file=e.target.files?.[0];if(!file)return;pause();if(music.blobUrl)URL.revokeObjectURL(music.blobUrl);music.blobUrl=URL.createObjectURL(file);music.mode='file';audio.src=music.blobUrl;music.lyrics=[];music.lyricIndex=-1;$('#trackName').textContent=file.name.replace(/\.[^.]+$/,'');$('#trackArtist').textContent='Локальный файл';$('#lyricStatus').textContent='Загрузи LRC';audio.load();await play();toast('Трек загружен. Для слов песни добавь файл LRC')});
+$('#musicFile').addEventListener('change',async e=>{const file=e.target.files?.[0];if(!file)return;pause();if(music.blobUrl)URL.revokeObjectURL(music.blobUrl);music.blobUrl=URL.createObjectURL(file);music.mode='file';audio.src=music.blobUrl;music.lyrics=[];music.lyricIndex=-1;music.lyricsRequest++;const filename=file.name.replace(/\.[^.]+$/,'');const match=filename.match(/^(.+?)\s+[-–—]\s+(.+)$/);const artist=match?.[1]?.trim()||'';const title=match?.[2]?.trim()||filename;$('#trackName').textContent=title;$('#trackArtist').textContent=artist||'Локальный файл';$('#lyricsTrack').value=title;$('#lyricsArtist').value=artist;$('#lyricStatus').textContent='Загрузи LRC';audio.load();await play();toast('Трек загружен. Для слов песни добавь файл LRC')});
 audio.addEventListener('ended',()=>{music.playing=false;updatePlayer();drawWave()});
 function parseLRC(text){const items=[];for(const line of text.replace(/\r/g,'').split('\n')){const lyric=line.replace(/\[(?:\d+:\d+(?:\.\d+)?|[^\]]+)\]/g,'').trim();for(const m of line.matchAll(/\[(\d+):(\d+(?:\.\d+)?)\]/g)){if(lyric)items.push({at:+m[1]*60+ +m[2],text:lyric})}}return items.sort((a,b)=>a.at-b.at)}
-$('#lyricsFile').addEventListener('change',async e=>{const file=e.target.files?.[0];if(!file)return;const data=parseLRC(await file.text());if(!data.length){toast('Не найдены строки [mm:ss.xx]');return}music.lyrics=data;music.lyricIndex=-1;$('#lyricStatus').textContent=file.name;updateLyrics();toast('LRC загружен: '+data.length+' строк')});
-function updateLyrics(){const time=currentTime();const lines=music.lyrics;let i=-1;for(let x=0;x<lines.length;x++){if(lines[x].at<=time)i=x;else break}if(i===music.lyricIndex)return;music.lyricIndex=i;const set=(id,text)=>{const el=$(id);el.textContent=text||'—';el.classList.remove('animate');void el.offsetWidth;el.classList.add('animate')};set('#lyricPast',i>=1?lines[i-1].text:'—');set('#lyricPresent',i>=0?lines[i].text:'Музыка — часть атмосферы');set('#lyricFuture',lines[i+1]?.text||'—')}
+$('#lyricsFile').addEventListener('change',async e=>{const file=e.target.files?.[0];if(!file)return;const data=parseLRC(await file.text());if(!data.length){toast('Не найдены строки [mm:ss.xx]');return}music.lyricsRequest++;music.lyrics=data;music.lyricIndex=-1;$('#lyricStatus').textContent=file.name;updateLyrics();toast('LRC загружен: '+data.length+' строк')});
+function updateLyrics(){const time=Math.max(0,currentTime()-options.lyricsOffset);const lines=music.lyrics;let i=-1;for(let x=0;x<lines.length;x++){if(lines[x].at<=time)i=x;else break}if(i===music.lyricIndex)return;music.lyricIndex=i;const set=(id,text)=>{const el=$(id);el.textContent=text||'—';el.classList.remove('animate');void el.offsetWidth;el.classList.add('animate')};set('#lyricPast',i>=1?lines[i-1].text:'—');set('#lyricPresent',i>=0?lines[i].text:'Музыка — часть атмосферы');set('#lyricFuture',lines[i+1]?.text||'—')}
+/**
+ * Select LRCLIB results strictly by metadata. Do not silently display the
+ * unrelated first search result as if it matched the current track.
+ */
+function chooseSyncedRecord(records,title,artist,length){
+  const normalized=value=>String(value||'').normalize('NFKC').toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu,' ').trim();
+  const target=normalized(title),performer=normalized(artist);
+  const matches=(Array.isArray(records)?records:[]).filter(item=>{
+    if(typeof item?.syncedLyrics!=='string'||!item.syncedLyrics.trim()||item.instrumental)return false;
+    const named=normalized(item.trackName||item.name);
+    const band=normalized(item.artistName);
+    return named===target&&(band===performer||band.includes(performer)&&performer.length>=3);
+  });
+  matches.sort((a,b)=>{
+    const aDuration=length>0&&Number.isFinite(a.duration)?Math.abs(a.duration-length):0;
+    const bDuration=length>0&&Number.isFinite(b.duration)?Math.abs(b.duration-length):0;
+    return aDuration-bDuration;
+  });
+  return matches[0]||null;
+}
+let lyricsSearchRunning=false;
+async function searchOnlineLyrics(){
+  if(lyricsSearchRunning)return;
+  const title=$('#lyricsTrack').value.trim(),artist=$('#lyricsArtist').value.trim();
+  if(title.length<2||artist.length<2){toast('Введи название и исполнителя');return}
+  const button=$('#findLyrics');
+  lyricsSearchRunning=true;button.disabled=true;$('#lyricStatus').textContent='Поиск LRCLIB…';
+  const request=++music.lyricsRequest,controller=new AbortController(),abortTimer=setTimeout(()=>controller.abort(),9500);
+  try{
+    const query=new URLSearchParams({track_name:title,artist_name:artist});
+    const response=await fetch('https://lrclib.net/api/search?'+query,{
+      headers:{'Accept':'application/json','Lrclib-Client':'Island Lab/0.2 (https://github.com/Deenfoool/snowy-New-Year)'},
+      signal:controller.signal
+    });
+    if(!response.ok){
+      if(response.status===429)throw Error('Слишком много запросов. Попробуй позже.');
+      throw Error('LRCLIB вернул HTTP '+response.status);
+    }
+    const records=await response.json();
+    if(music.lyricsRequest!==request)return;
+    const matched=chooseSyncedRecord(records,title,artist,duration());
+    if(!matched){$('#lyricStatus').textContent='Синхронный текст не найден';toast('В LRCLIB нет точного синхронного текста для этого трека');return}
+    const parsed=parseLRC(matched.syncedLyrics);
+    if(!parsed.length){$('#lyricStatus').textContent='Текст без меток времени';return}
+    music.lyrics=parsed;music.lyricIndex=-1;$('#lyricStatus').textContent='LRCLIB · '+parsed.length+' строк';
+    updateLyrics();toast('Слова загружены из LRCLIB');
+  }catch(error){
+    if(music.lyricsRequest!==request)return;
+    $('#lyricStatus').textContent='Не удалось получить текст';
+    toast(error.name==='AbortError'?'LRCLIB не ответил вовремя':error.message);
+  }finally{
+    clearTimeout(abortTimer);lyricsSearchRunning=false;button.disabled=false;
+  }
+}
+$('#findLyrics').addEventListener('click',searchOnlineLyrics);
+function shiftLyrics(delta){
+  const old=Number.isFinite(options.lyricsOffset)?options.lyricsOffset:0;
+  options.lyricsOffset=Math.round(Math.max(-10,Math.min(10,old+delta))*10)/10;
+  persist();$('#lyricsOffset').textContent=(options.lyricsOffset>0?'+':'')+options.lyricsOffset.toFixed(1)+' с';
+  music.lyricIndex=-1;updateLyrics();
+}
+$('#lyricsEarlier').addEventListener('click',()=>shiftLyrics(-0.5));
+$('#lyricsLater').addEventListener('click',()=>shiftLyrics(0.5));
 function updatePlayer(){const pos=currentTime(),len=duration();$('#timeNow').textContent=formatTime(pos);$('#timeEnd').textContent=formatTime(len);$('#seek').value=len?Math.min(100,pos/len*100):0;$$('[data-player=toggle]').forEach(el=>{el.textContent=music.playing?'Ⅱ':'▶';el.setAttribute('aria-label',music.playing?'Пауза':'Воспроизвести')});updateLyrics()}
 
 /* Procedural translucent waves extend DOWN from the actual lower window boundary. */
@@ -123,4 +186,4 @@ requestAnimationFrame(renderSnow);
 for(const [id,key,transform] of [['accentColor','accent',v=>v],['wavePower','wavePower',v=>+v],['waveToggle','waveEnabled',v=>v],['reducedMotion','reducedMotion',v=>v],['backgroundSnow','backgroundSnow',v=>v],['snowToggle','snow',v=>v],['capsToggle','caps',v=>v],['snowmenToggle','snowmen',v=>v],['snowIntensity','snowIntensity',v=>+v]]){$('#'+id).addEventListener(id==='accentColor'||id==='wavePower'||id==='snowIntensity'?'input':'change',e=>setOption(key,e.target.type==='checkbox'?e.target.checked:transform(e.target.value)))}
 $('#weatherInput').addEventListener('change',e=>{options.weatherCity=e.target.value.trim();persist()});
 function clock(){const now=new Date();$('#desktopClock').textContent=now.toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});updatePlayer()}
-setInterval(clock,1000);clock();emptyCanvas();updateEditor();renderNotes();applyOptions();updatePlayer();setExpanded(false);
+setInterval(clock,1000);clock();emptyCanvas();updateEditor();renderNotes();applyOptions();$('#lyricsTrack').value=activeTrack().name;$('#lyricsArtist').value=activeTrack().artist;updatePlayer();setExpanded(false);
