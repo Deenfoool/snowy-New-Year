@@ -429,3 +429,29 @@ test('wave gradient is cached and frame rate supports 120/144Hz',()=>{
   assert.match(app,/if\(now-lastWave>=6\)/);
   assert.doesNotMatch(app,/getComputedStyle\(document\.documentElement\)[\s\S]{0,80}getPropertyValue\('--accent'\)/);
 });
+
+test('system reduced-motion preference disables actual snow and waveform rendering loops',()=>{
+  const snowStart=app.indexOf('function snowEnabled()');
+  const snowEnd=app.indexOf('function renderSnow(',snowStart);
+  assert.ok(snowStart>=0&&snowEnd>snowStart);
+  const getter=runInNewContext(
+    app.slice(snowStart,snowEnd)+'\nsnowEnabled',
+    {
+      options:{snow:true,backgroundSnow:true,reducedMotion:false,snowIntensity:40},
+      motion:{motionAllowed:()=>false},
+      nativeShell:false,document:{hidden:false}
+    }
+  );
+  assert.equal(getter(),false);
+  assert.match(app,/reducedPreference\?\.addEventListener\?\.\('change'/);
+  assert.match(app,/motion\?\.motionAllowed\(options\.reducedMotion\)===false/);
+  assert.match(app,/waveDynamics\.bands\.fill\(0\)/);
+});
+
+test('compact controls remain keyboard-visible and touch-friendly',()=>{
+  assert.match(html,/<nav class="tabs" role="tablist"/);
+  assert.match(css,/\.mini-btn\{width:34px;height:38px/);
+  assert.match(css,/button:focus-visible,select:focus-visible/);
+  assert.match(css,/@media\(pointer:coarse\)/);
+  assert.match(css,/@media\(max-width:360px\)/);
+});
