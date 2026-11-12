@@ -98,3 +98,9 @@ npm run dev
 Manual scenario: play a track in Spotify or a browser, enable **Плеер Windows** → **Волны из звука Windows**, then vary the volume, pause the song, stop the toggle, switch the default audio device, and minimize the window. Check **Настройки → Проверка приложения**, and Task Manager CPU/GPU use.
 
 Source references: Microsoft [WASAPI loopback](https://learn.microsoft.com/en-us/windows/win32/coreaudio/loopback-recording) and [wasapi-rs](https://github.com/HEnquist/wasapi-rs).
+
+## Experimental always-on-bottom trial
+
+The Windows host now includes **Settings → Размещение на рабочем столе**: a 20-second reversible test of the documented Tauri `set_always_on_bottom` API. A separate Rust thread reverts it even if the frontend freezes. You may confirm the trial for the rest of the process lifetime or cancel it. **Nothing is persisted** and the window remains available on the taskbar. This does **not** attach to WorkerW, and may go behind the desktop icon host; it must be manually validated before being considered a real desktop widget.
+
+See [the Windows desktop-layer test matrix](../DESKTOP_LAYER_TEST.md).
