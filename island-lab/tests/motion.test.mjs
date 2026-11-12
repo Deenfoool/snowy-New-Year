@@ -103,3 +103,103 @@ test('wave is driven by smoothed real bands and runs only while needed',()=>{
   assert.match(app,/if\(!hasSource&&!waveHasTail\(\)\)return/);
   assert.match(app,/now-lastProgress>=90/);
 });
+
+test('frame pacing summary reports mean FPS, p95 and jank',()=>{
+  const start=app.indexOf('function summarizeMotionFrames(');
+  const end=app.indexOf('let lastMotionBenchmark=',start);
+  assert.ok(start>=0&&end>start);
+  const summarize=runInNewContext(app.slice(start,end)+'\nsummarizeMotionFrames',{});
+  const normal=summarize(Array(60).fill(1000/60));
+  assert.equal(normal.fps,60);
+  assert.equal(normal.slowFrames,0);
+  assert.ok(normal.p95Ms>16&&normal.p95Ms<17);
+  const janky=summarize([...Array(19).fill(16.7),60]);
+  assert.equal(janky.slowFrames,1);
+  assert.equal(janky.p95Ms,60);
+  assert.equal(summarize([]),null);
+  assert.match(html,/id="motionBenchmarkBtn"/);
+  assert.match(html,/id="motionBenchmarkResult"/);
+});
+
+test('rapid native expand followed by collapse queues final Windows size',async()=>{
+  const section=(a,b)=>{
+    const from=app.indexOf(a),to=app.indexOf(b,from);
+    assert.ok(from>=0&&to>from);
+    return app.slice(from,to);
+  };
+  const native=section('let nativeResizeQueue=','const KEY=');
+  const commit=section('function commitExpanded(','let expandRequest=');
+  const toggle=section('async function setExpanded(','function showTab(');
+  const classes=new Set(['collapsed']);
+  const issued=[];
+  let finishFirst;
+  const gate=new Promise(resolve=>{finishFirst=resolve});
+  const mocks={
+    nativeShell:true,
+    nativeApi:{core:{invoke:async(_cmd,args)=>{
+      issued.push(args.expanded);
+      if(issued.length===1)await gate;
+      return null
+    }}},
+    island:{
+      classList:{
+        contains:name=>classes.has(name),
+        add:name=>classes.add(name),
+        remove:name=>classes.delete(name),
+        toggle:(name,on)=>on?classes.add(name):classes.delete(name)
+      },
+      style:{setProperty(){}}
+    },
+    panel:{inert:true},
+    motion:{
+      motionAllowed:()=>true,
+      timings:()=>({morph:560}),
+      onceTransition:()=>Promise.resolve(),
+      clearLyrics(){}
+    },
+    options:{reducedMotion:false},
+    requestAnimationFrame:()=>1,
+    resizeWave(){},drawWave(){},startWaveLoop(){},
+    syncTabIndicator(){},refreshIslandHeight(){},clearWave(){},
+    setTimeout:()=>1,clearTimeout(){},
+    console:{warn(){}}
+  };
+  const expr=`
+    let nativeBridgeStatus='';
+    let expanded=false,morphSequence=0,morphTimer=0;
+    ${native}
+    ${commit}
+    let expandRequest=0;
+    ${toggle}
+    return {setExpanded,getState:()=>({expanded,collapsed:island.classList.contains('collapsed')})}
+  `;
+  const simulator=runInNewContext(
+    'new Function(...Object.keys(inputs),source)(...Object.values(inputs))',
+    {inputs:mocks,source:expr}
+  );
+  const opening=simulator.setExpanded(true);
+  for(let i=0;i<5;i++)await Promise.resolve();
+  const closing=simulator.setExpanded(false);
+  finishFirst();
+  await Promise.all([opening,closing]);
+  assert.deepEqual(issued,[true,false]);
+  assert.equal(simulator.getState().expanded,false);
+  assert.equal(simulator.getState().collapsed,true);
+});
+
+test('weather and music metadata change with optional appearance motion',()=>{
+  assert.match(app,/function animateLabel\(/);
+  assert.match(app,/animateLabel\('#trackName'/);
+  assert.match(app,/animateLabel\('#weatherTemp'/);
+  assert.match(code,/function animateValue\(/);
+  const {motion}=engine(true);
+  const label={textContent:'Before'};
+  motion.animateValue(label,'After',{enabled:true});
+  assert.equal(label.textContent,'After');
+});
+
+test('snow uses real frame delta and does not stay at old 22fps',()=>{
+  assert.match(app,/frameSeconds=snowFrame\?/);
+  assert.match(app,/flake\.v\*24\*frameSeconds\/h/);
+  assert.doesNotMatch(app,/time-snowFrame>=44/);
+});
