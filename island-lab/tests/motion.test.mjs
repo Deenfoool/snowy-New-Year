@@ -232,7 +232,7 @@ test('motion benchmark is on-demand and does not poll in the background',()=>{
 });
 
 test('screen redraws are throttled without losing the 60fps waveform budget',()=>{
-  assert.match(app,/if\(now-lastWave>=14\)/);
+  assert.match(app,/if\(now-lastWave>=6\)/);
   assert.match(app,/if\(now-lastProgress>=90\)/);
   assert.match(app,/if\(!hasSource&&!waveHasTail\(\)\)return/);
 });
@@ -308,4 +308,124 @@ test('cover art transitions only when changing a track and while expanded',()=>{
 test('large full-panel CSS blur and canvas will-change are not used',()=>{
   assert.doesNotMatch(css,/opacity:\.5;filter:blur/);
   assert.doesNotMatch(css,/will-change:contents/);
+});
+
+test('tabs expose ARIA relationships and roving keyboard navigation',()=>{
+  for(const name of ['home','shots','snow','notes','settings']){
+    assert.match(html,new RegExp('id="tab-'+name+'"[^>]*role="tab"[^>]*aria-controls="view-'+name+'"'));
+    assert.match(html,new RegExp('id="view-'+name+'" role="tabpanel"'));
+  }
+  assert.match(html,/<nav class="tabs" role="tablist"/);
+  const start=app.indexOf('function showTab('),end=app.indexOf("$('#expandTarget').addEventListener",start);
+  assert.ok(start>=0&&end>start);
+  const buttons=['home','shots','snow','notes','settings'].map((name,index)=>{
+    const classes=new Set(index===0?['tab','active']:['tab']);
+    return {
+      dataset:{tab:name},disabled:false,tabIndex:index===0?0:-1,
+      attrs:{},classList:{toggle:(key,on)=>on?classes.add(key):classes.delete(key)},
+      setAttribute(key,value){this.attrs[key]=value},
+      focus(){documentMock.activeElement=this},
+      scrollIntoView(){this.wasScrolled=true}
+    };
+  });
+  const views=buttons.map(button=>({
+    id:'view-'+button.dataset.tab,inert:button.dataset.tab!=='home',
+    classList:{toggle(){}}
+  }));
+  const documentMock={activeElement:buttons[0]};
+  const listeners={};
+  const navMock={addEventListener:(name,fn)=>{listeners[name]=fn}};
+  const context={
+    nav:navMock,tabRequest:0,tabTransition:null,tab:'home',expanded:true,
+    document:documentMock,
+    island:{classList:{contains:()=>false}},
+    motion:{motionAllowed:()=>false},
+    options:{reducedMotion:false},
+    $:selector=>views.find(view=>selector==='#'+view.id),
+    $$:selector=>selector==='.tab'?buttons:selector==='.tab-content'?views:[],
+    requestAnimationFrame:callback=>{callback();return 1},
+    syncTabIndicator(){},refreshIslandHeight(){},updateEditor(){},setExpanded(){}
+  };
+  const script=app.slice(start,end);
+  const simulator=runInNewContext(
+    'new Function(...Object.keys(context),script+";return {showTab}")( ...Object.values(context) )',
+    {context,script}
+  );
+  assert.equal(typeof listeners.keydown,'function');
+  const move=(key,index)=>{
+    let prevented=false;
+    listeners.keydown({key,preventDefault(){prevented=true}});
+    assert.equal(prevented,true);
+    assert.equal(documentMock.activeElement,buttons[index]);
+    assert.equal(buttons[index].attrs['aria-selected'],'true');
+    assert.equal(buttons[index].tabIndex,0);
+    assert.equal(views[index].inert,false);
+    assert.equal(buttons.filter(button=>button.tabIndex===0).length,1)
+  };
+  move('ArrowRight',1);
+  move('End',4);
+  move('ArrowRight',0);
+  move('ArrowLeft',4);
+  move('Home',0);
+});
+
+test('capsule transfers keyboard focus between visible layouts',()=>{
+  const start=app.indexOf('function commitExpanded(');
+  const end=app.indexOf('let expandRequest=',start);
+  assert.ok(start>=0&&end>start);
+  const focuses=[];
+  const activeMini={id:'mini'};
+  const activePanel={id:'panel'};
+  const documentMock={activeElement:activeMini};
+  const collapsedBar={
+    inert:false,
+    contains:element=>element===activeMini
+  };
+  const panel={
+    inert:true,
+    contains:element=>element===activePanel
+  };
+  const classes=new Set(['collapsed']);
+  const context={
+    morphSequence:0,morphTimer:0,expanded:false,waveRaf:0,
+    island:{
+      classList:{
+        add:name=>classes.add(name),remove:name=>classes.delete(name),
+        contains:name=>classes.has(name),
+        toggle:(name,on)=>on?classes.add(name):classes.delete(name)
+      },
+      style:{setProperty(){}}
+    },
+    document:documentMock,collapsedBar,panel,
+    $:selector=>({focus:()=>focuses.push(selector)}),
+    motion:{motionAllowed:()=>false,timings:()=>({morph:0}),clearLyrics(){}},
+    options:{reducedMotion:true},
+    clearTimeout(){},setTimeout:()=>1,
+    requestAnimationFrame:()=>1,
+    resizeWave(){},drawWave(){},startWaveLoop(){},
+    syncTabIndicator(){},refreshIslandHeight(){},clearWave(){},
+    cancelAnimationFrame(){}
+  };
+  const script=app.slice(start,end);
+  const instance=runInNewContext(
+    'new Function(...Object.keys(context),script+";return {commitExpanded}")( ...Object.values(context) )',
+    {context,script}
+  );
+  instance.commitExpanded(true);
+  assert.equal(panel.inert,false);
+  assert.equal(collapsedBar.inert,true);
+  assert.equal(focuses.at(-1),'.tab.active');
+  documentMock.activeElement=activePanel;
+  instance.commitExpanded(false);
+  assert.equal(panel.inert,true);
+  assert.equal(collapsedBar.inert,false);
+  assert.equal(focuses.at(-1),'#expandTarget');
+});
+
+test('wave gradient is cached and frame rate supports 120/144Hz',()=>{
+  assert.match(app,/function getWaveGradient\(/);
+  assert.match(app,/cachedWaveAccent===options\.accent/);
+  assert.match(app,/cachedWaveGradient=null/);
+  assert.match(app,/if\(now-lastWave>=6\)/);
+  assert.doesNotMatch(app,/getComputedStyle\(document\.documentElement\)[\s\S]{0,80}getPropertyValue\('--accent'\)/);
 });
