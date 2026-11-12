@@ -22,7 +22,9 @@
         "alwaysOnTop": false,
         "resizable": false,
         "shadow": false,
-        "center": true
+        "center": true,
+        "alwaysOnBottom": false,
+        "skipTaskbar": false
       }
     ],
     "security": {
