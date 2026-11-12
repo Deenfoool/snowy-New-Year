@@ -118,8 +118,13 @@ function chooseSyncedRecord(records,title,artist,length){
   return matches[0]||null;
 }
 let lyricsSearchRunning=false;
+let lyricsRetryUntil=0;
 async function searchOnlineLyrics(){
   if(lyricsSearchRunning)return;
+  if(Date.now()<lyricsRetryUntil){
+    toast('LRCLIB ограничил запросы. Повтори через '+Math.ceil((lyricsRetryUntil-Date.now())/1000)+' с');
+    return;
+  }
   const title=$('#lyricsTrack').value.trim(),artist=$('#lyricsArtist').value.trim();
   if(title.length<2||artist.length<2){toast('Введи название и исполнителя');return}
   const button=$('#findLyrics');
@@ -132,7 +137,12 @@ async function searchOnlineLyrics(){
       signal:controller.signal
     });
     if(!response.ok){
-      if(response.status===429)throw Error('Слишком много запросов. Попробуй позже.');
+      if(response.status===429){
+        const retry=Number(response.headers.get('Retry-After'));
+        const seconds=Number.isFinite(retry)&&retry>0?Math.min(600,Math.ceil(retry)):60;
+        lyricsRetryUntil=Date.now()+seconds*1000;
+        throw Error('Слишком много запросов. Повтори через '+seconds+' с');
+      }
       throw Error('LRCLIB вернул HTTP '+response.status);
     }
     const records=await response.json();
