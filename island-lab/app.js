@@ -1,17 +1,35 @@
 /* Island Lab: self-contained browser experiment, independent from Snowy New Year. */
 'use strict';
-const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const $=s=>document.querySelector(s), $=s=>[...document.querySelectorAll(s)];
+// The same frontend is used in a browser and in the optional Tauri/WebView2
+// host. Browser mode never requests native privileges.
+const nativeApi=window.__TAURI__;
+const nativeShell=Boolean(nativeApi?.core?.invoke);
+document.documentElement.classList.toggle('native-shell',nativeShell);
+function resizeNativeWindow(expanded){
+  if(!nativeShell)return;
+  nativeApi.core.invoke('set_island_expanded',{expanded}).catch(error=>{
+    console.warn('Island Lab: native window resize failed',error);
+  });
+}
 const KEY='island-lab-v1', NOTES='island-lab-notes-v1';
 const defaults={accent:'#8dd9f6',wavePower:65,waveEnabled:true,reducedMotion:false,backgroundSnow:true,snow:true,caps:true,snowmen:true,snowIntensity:42,weatherCity:'',lyricsOffset:0,offset:null};
 const options=(()=>{try{return {...defaults,...JSON.parse(localStorage.getItem(KEY)||'{}')}}catch{return {...defaults}}})();
 function persist(){try{localStorage.setItem(KEY,JSON.stringify(options))}catch{}}
 function toast(message){const el=$('#toast');el.textContent=message;el.classList.add('visible');clearTimeout(toast.timer);toast.timer=setTimeout(()=>el.classList.remove('visible'),3400)}
 function rgb(hex){const h=hex.replace('#','');const v=parseInt(h,16);return [(v>>16)&255,(v>>8)&255,v&255].join(',')}
-function applyOptions(){document.documentElement.style.setProperty('--accent',options.accent);document.documentElement.style.setProperty('--accent-rgb',rgb(options.accent));$('#accentColor').value=options.accent;$('#wavePower').value=options.wavePower;$('#waveValue').textContent=options.wavePower+'%';$('#waveToggle').checked=options.waveEnabled;$('#reducedMotion').checked=options.reducedMotion;$('#backgroundSnow').checked=options.backgroundSnow;$('#snowToggle').checked=options.snow;$('#capsToggle').checked=options.caps;$('#snowmenToggle').checked=options.snowmen;$('#snowIntensity').value=options.snowIntensity;$('#snowPercent').textContent=options.snowIntensity+'%';$('#weatherInput').value=options.weatherCity||'';$('#lyricsOffset').textContent=(options.lyricsOffset>0?'+':'')+options.lyricsOffset.toFixed(1)+' с';if(options.offset)placeIsland(options.offset.left,options.offset.top)}
+function applyOptions(){document.documentElement.style.setProperty('--accent',options.accent);document.documentElement.style.setProperty('--accent-rgb',rgb(options.accent));$('#accentColor').value=options.accent;$('#wavePower').value=options.wavePower;$('#waveValue').textContent=options.wavePower+'%';$('#waveToggle').checked=options.waveEnabled;$('#reducedMotion').checked=options.reducedMotion;$('#backgroundSnow').checked=options.backgroundSnow;$('#snowToggle').checked=options.snow;$('#capsToggle').checked=options.caps;$('#snowmenToggle').checked=options.snowmen;$('#snowIntensity').value=options.snowIntensity;$('#snowPercent').textContent=options.snowIntensity+'%';$('#weatherInput').value=options.weatherCity||'';$('#lyricsOffset').textContent=(options.lyricsOffset>0?'+':'')+options.lyricsOffset.toFixed(1)+' с';if(options.offset&&!nativeShell)placeIsland(options.offset.left,options.offset.top)}
 function setOption(k,v){options[k]=v;persist();applyOptions();if(['waveEnabled','reducedMotion','wavePower'].includes(k)){drawWave();startWaveLoop()}}
 const shell=$('#shell'),island=$('#island'),panel=$('#expandedPanel');
 let expanded=false,tab='home';
-function setExpanded(value){expanded=!!value;island.classList.toggle('collapsed',!expanded);panel.inert=!expanded;if(expanded){resizeWave();drawWave();startWaveLoop()}else{clearWave();}persist()}
+function setExpanded(value){
+  expanded=!!value;
+  island.classList.toggle('collapsed',!expanded);
+  panel.inert=!expanded;
+  if(expanded){resizeWave();drawWave();startWaveLoop()}else{clearWave()}
+  resizeNativeWindow(expanded);
+  persist()
+}
 function showTab(name){if(!$('#view-'+name))return;tab=name;setExpanded(true);$$('.tab').forEach(b=>{const yes=b.dataset.tab===name;b.classList.toggle('active',yes);if(yes)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current')});$$('.tab-content').forEach(el=>el.classList.toggle('active',el.id==='view-'+name));if(name==='shots')requestAnimationFrame(()=>updateEditor())}
 $('#expandTarget').addEventListener('click',()=>setExpanded(true));
 $('#collapsedBar').addEventListener('click',e=>{if(!e.target.closest('.micro-player'))setExpanded(true)});
@@ -20,14 +38,30 @@ $$('.tab').forEach(b=>b.addEventListener('click',()=>showTab(b.dataset.tab)));
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&expanded&&document.activeElement?.tagName!=='INPUT'&&document.activeElement?.tagName!=='TEXTAREA')setExpanded(false)});
 function placeIsland(left,top){const w=shell.offsetWidth||900;const l=Math.max(8,Math.min(innerWidth-w-8,left));const t=Math.max(4,Math.min(innerHeight-90,top));shell.style.left=l+'px';shell.style.top=t+'px';shell.style.transform='none'}
 let dragging=null;
-function startDrag(e){if(e.button!==0)return;const rect=shell.getBoundingClientRect();dragging={id:e.pointerId,dx:e.clientX-rect.left,dy:e.clientY-rect.top};e.currentTarget.setPointerCapture(e.pointerId);e.preventDefault()}
+function startDrag(e){
+  if(e.button!==0)return;
+  if(nativeShell){
+    const drag=nativeApi.window?.getCurrentWindow?.()?.startDragging?.();
+    drag?.catch(error=>console.warn('Island Lab: native drag failed',error));
+    e.preventDefault();return
+  }
+  const rect=shell.getBoundingClientRect();
+  dragging={id:e.pointerId,dx:e.clientX-rect.left,dy:e.clientY-rect.top};
+  e.currentTarget.setPointerCapture(e.pointerId);e.preventDefault()
+}
 function moveDrag(e){if(!dragging||dragging.id!==e.pointerId)return;const left=e.clientX-dragging.dx,top=e.clientY-dragging.dy;placeIsland(left,top)}
 function stopDrag(e){if(!dragging||dragging.id!==e.pointerId)return;dragging=null;const r=shell.getBoundingClientRect();options.offset={left:r.left,top:r.top};persist()}
 $('#dragHandle').addEventListener('pointerdown',startDrag);
 $('#dragHandle').addEventListener('pointermove',moveDrag);
 $('#dragHandle').addEventListener('pointerup',stopDrag);
-$('#resetPosition').addEventListener('click',()=>{options.offset=null;persist();shell.style.left='50%';shell.style.top='35px';shell.style.transform='translateX(-50%)';toast('Положение сброшено')});
-window.addEventListener('resize',()=>{if(options.offset)placeIsland(options.offset.left,options.offset.top);resizeWave()});
+$('#resetPosition').addEventListener('click',()=>{
+  options.offset=null;persist();
+  shell.style.left='50%';shell.style.top=nativeShell?'8px':'35px';
+  shell.style.transform='translateX(-50%)';
+  resizeNativeWindow(expanded);
+  toast('Положение сброшено')
+});
+window.addEventListener('resize',()=>{if(options.offset&&!nativeShell)placeIsland(options.offset.left,options.offset.top);resizeWave()});
 
 /* Music engine: demo synthesizer and user-loaded files feed the SAME analyser. */
 const tracks=[
