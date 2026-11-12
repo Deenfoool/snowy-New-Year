@@ -708,6 +708,10 @@ function diagnosticsText(){
   const features=[
     ['Tauri IPC',nativeShell?nativeBridgeStatus:'Не требуется'],
     ['Аудио Web Audio',Boolean(window.AudioContext||window.webkitAudioContext)?'Поддерживается':'Недоступно'],
+    ['WASAPI Loopback',!nativeShell?'Только Windows':
+      !audioCapture?.supported?'Недоступен':
+      audioCapture.active?'Активен (системный микс)':'Выключен'],
+    ['Спектр',audioCapture?.active?'16 полос, без сохранения звука':'Не используется'],
     ['Редактор Canvas',Boolean(base.getContext('2d')&&draw.getContext('2d'))?'Поддерживается':'Недоступно'],
     ['Захват экрана',navigator.mediaDevices?.getDisplayMedia?'Поддерживается браузером':'Недоступно'],
     ['Буфер обмена',navigator.clipboard?.read?'Доступен при разрешении':'Ограничен'],
