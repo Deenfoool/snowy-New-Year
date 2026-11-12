@@ -11,33 +11,130 @@ window.addEventListener('error',()=>{runtimeErrorCount++});
 window.addEventListener('unhandledrejection',()=>{runtimeErrorCount++});
 document.documentElement.classList.toggle('native-shell',nativeShell);
 function resizeNativeWindow(expanded){
-  if(!nativeShell)return;
-  nativeApi.core.invoke('set_island_expanded',{expanded})
-    .then(()=>{nativeBridgeStatus='OK'})
+  if(!nativeShell)return Promise.resolve(true);
+  return nativeApi.core.invoke('set_island_expanded',{expanded})
+    .then(()=>{nativeBridgeStatus='OK';return true})
     .catch(error=>{
       nativeBridgeStatus='Ошибка IPC';
       console.warn('Island Lab: native window resize failed',error);
-    });
+      return false
+    })
 }
 const KEY='island-lab-v1', NOTES='island-lab-notes-v1';
-const defaults={accent:'#8dd9f6',wavePower:65,waveEnabled:true,reducedMotion:false,backgroundSnow:true,snow:true,caps:true,snowmen:true,snowIntensity:42,weatherCity:'',lyricsOffset:0,offset:null};
+const defaults={accent:'#8dd9f6',wavePower:65,waveEnabled:true,reducedMotion:false,backgroundSnow:true,snow:true,caps:true,snowmen:true,snowIntensity:42,weatherCity:'',lyricsOffset:0,motionStyle:'fluid',offset:null};
 const options=(()=>{try{return {...defaults,...JSON.parse(localStorage.getItem(KEY)||'{}')}}catch{return {...defaults}}})();
 function persist(){try{localStorage.setItem(KEY,JSON.stringify(options))}catch{}}
 function toast(message){const el=$('#toast');el.textContent=message;el.classList.add('visible');clearTimeout(toast.timer);toast.timer=setTimeout(()=>el.classList.remove('visible'),3400)}
 function rgb(hex){const h=hex.replace('#','');const v=parseInt(h,16);return [(v>>16)&255,(v>>8)&255,v&255].join(',')}
-function applyOptions(){document.documentElement.style.setProperty('--accent',options.accent);document.documentElement.style.setProperty('--accent-rgb',rgb(options.accent));$('#accentColor').value=options.accent;$('#wavePower').value=options.wavePower;$('#waveValue').textContent=options.wavePower+'%';$('#waveToggle').checked=options.waveEnabled;$('#reducedMotion').checked=options.reducedMotion;$('#backgroundSnow').checked=options.backgroundSnow;$('#snowToggle').checked=options.snow;$('#capsToggle').checked=options.caps;$('#snowmenToggle').checked=options.snowmen;$('#snowIntensity').value=options.snowIntensity;$('#snowPercent').textContent=options.snowIntensity+'%';$('#weatherInput').value=options.weatherCity||'';$('#lyricsOffset').textContent=(options.lyricsOffset>0?'+':'')+options.lyricsOffset.toFixed(1)+' с';if(options.offset&&!nativeShell)placeIsland(options.offset.left,options.offset.top)}
-function setOption(k,v){options[k]=v;persist();applyOptions();if(['waveEnabled','reducedMotion','wavePower'].includes(k)){drawWave();startWaveLoop()}if(['snow','backgroundSnow','reducedMotion','snowIntensity'].includes(k))updateSnowLoop()}
-const shell=$('#shell'),island=$('#island'),panel=$('#expandedPanel');
-let expanded=false,tab='home';
-function setExpanded(value){
-  expanded=!!value;
-  island.classList.toggle('collapsed',!expanded);
-  panel.inert=!expanded;
-  if(expanded){resizeWave();drawWave();startWaveLoop()}else{clearWave()}
-  resizeNativeWindow(expanded);
-  persist()
+function applyOptions(){document.documentElement.style.setProperty('--accent',options.accent);document.documentElement.style.setProperty('--accent-rgb',rgb(options.accent));$('#accentColor').value=options.accent;$('#wavePower').value=options.wavePower;$('#waveValue').textContent=options.wavePower+'%';$('#waveToggle').checked=options.waveEnabled;$('#reducedMotion').checked=options.reducedMotion;$('#backgroundSnow').checked=options.backgroundSnow;$('#snowToggle').checked=options.snow;$('#capsToggle').checked=options.caps;$('#snowmenToggle').checked=options.snowmen;$('#snowIntensity').value=options.snowIntensity;$('#snowPercent').textContent=options.snowIntensity+'%';$('#weatherInput').value=options.weatherCity||'';
+  window.IslandMotion?.setPreset(options.motionStyle);
+  document.documentElement.classList.toggle('motion-reduced',Boolean(options.reducedMotion));
+  $('#motionStyle').value=options.motionStyle;
+  $('#lyricsOffset').textContent=(options.lyricsOffset>0?'+':'')+options.lyricsOffset.toFixed(1)+' с';if(options.offset&&!nativeShell)placeIsland(options.offset.left,options.offset.top)}
+function setOption(k,v){
+  options[k]=v;persist();applyOptions();
+  if(['waveEnabled','reducedMotion','wavePower'].includes(k)){drawWave();startWaveLoop()}
+  if(['snow','backgroundSnow','reducedMotion','snowIntensity'].includes(k))updateSnowLoop();
+  if(k==='motionStyle'||k==='reducedMotion')refreshIslandHeight()
 }
-function showTab(name){if(!$('#view-'+name))return;tab=name;setExpanded(true);$$('.tab').forEach(b=>{const yes=b.dataset.tab===name;b.classList.toggle('active',yes);if(yes)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current')});$$('.tab-content').forEach(el=>el.classList.toggle('active',el.id==='view-'+name));if(name==='shots')requestAnimationFrame(()=>updateEditor())}
+const shell=$('#shell'),island=$('#island'),panel=$('#expandedPanel');
+const motion=window.IslandMotion;
+let expanded=false,tab='home',morphSequence=0,morphTimer=0;
+const nav=$('.tabs');
+const navIndicator=document.createElement('span');
+navIndicator.className='tabs-indicator';
+navIndicator.setAttribute('aria-hidden','true');
+nav.prepend(navIndicator);
+
+function syncTabIndicator(){
+  const active=$('.tab.active');
+  if(!active)return;
+  nav.style.setProperty('--tab-indicator-x',active.offsetLeft+'px');
+  nav.style.setProperty('--tab-indicator-width',active.offsetWidth+'px');
+  nav.style.setProperty('--tab-indicator-height',active.offsetHeight+'px')
+}
+function refreshIslandHeight(){
+  if(!expanded||island.classList.contains('collapsed'))return;
+  // Measure the end-state content width, not the transient narrow capsule.
+  const finalWidth=Math.max(280,shell.clientWidth-2);
+  const before=panel.style.width;
+  panel.style.width=finalWidth+'px';
+  const measured=panel.getBoundingClientRect().height;
+  panel.style.width=before;
+  island.style.setProperty('--island-height',
+    Math.ceil(Math.max(49,measured+2))+'px');
+}
+function commitExpanded(next){
+  const token=++morphSequence;
+  expanded=next;
+  clearTimeout(morphTimer);
+  island.classList.add('is-morphing');
+  island.classList.toggle('collapsed',!next);
+  panel.inert=!next;
+  if(next){
+    refreshIslandHeight();
+    requestAnimationFrame(()=>{resizeWave();drawWave();startWaveLoop();syncTabIndicator()});
+  }else{
+    island.style.setProperty('--island-height','49px');
+    clearWave();
+    motion?.clearLyrics();
+  }
+  const duration=motion?.motionAllowed(options.reducedMotion)
+    ?motion.timings().morph:0;
+  morphTimer=setTimeout(()=>{
+    if(token!==morphSequence)return;
+    island.classList.remove('is-morphing');
+    if(next)refreshIslandHeight();
+  },duration+60);
+}
+let expandRequest=0;
+async function setExpanded(value){
+  const next=Boolean(value);
+  const request=++expandRequest;
+  if(next===expanded&&island.classList.contains('collapsed')===!next)return;
+  // Grow the transparent Windows viewport first. The actual visible pill
+  // then morphs inside it rather than flashing a full-sized panel.
+  if(next&&nativeShell){
+    await resizeNativeWindow(true);
+    if(request!==expandRequest)return
+  }
+  commitExpanded(next);
+  if(!next&&nativeShell){
+    // Keep the full native viewport during the shrinking capsule animation.
+    // Only shrink Windows' hit-test region after the visible morph ends.
+    const duration=motion?.motionAllowed(options.reducedMotion)
+      ?motion.timings().morph:0;
+    await motion?.onceTransition(island,'width',duration);
+    if(request!==expandRequest)return;
+    await resizeNativeWindow(false)
+  }
+}
+function showTab(name){
+  const nextView=$('#view-'+name);
+  if(!nextView)return;
+  const change=()=>{
+    tab=name;
+    $$('.tab').forEach(button=>{
+      const active=button.dataset.tab===name;
+      button.classList.toggle('active',active);
+      if(active)button.setAttribute('aria-current','page');
+      else button.removeAttribute('aria-current')
+    });
+    $$('.tab-content').forEach(view=>{
+      view.classList.toggle('active',view===nextView)
+    });
+    if(name==='shots')requestAnimationFrame(updateEditor);
+    requestAnimationFrame(()=>{syncTabIndicator();refreshIslandHeight()})
+  };
+  const transitioning=tab!==name&&expanded&&
+    !island.classList.contains('collapsed')&&
+    motion?.motionAllowed(options.reducedMotion)&&
+    typeof document.startViewTransition==='function';
+  if(transitioning){
+    document.startViewTransition(change);
+  }else change();
+  if(!expanded)void setExpanded(true)
+}
 $('#expandTarget').addEventListener('click',()=>setExpanded(true));
 $('#collapsedBar').addEventListener('click',e=>{if(!e.target.closest('.micro-player'))setExpanded(true)});
 $('#collapseButton').addEventListener('click',()=>setExpanded(false));
@@ -68,7 +165,11 @@ $('#resetPosition').addEventListener('click',()=>{
   resizeNativeWindow(expanded);
   toast('Положение сброшено')
 });
-window.addEventListener('resize',()=>{if(options.offset&&!nativeShell)placeIsland(options.offset.left,options.offset.top);resizeWave()});
+window.addEventListener('resize',()=>{
+  if(options.offset&&!nativeShell)placeIsland(options.offset.left,options.offset.top);
+  requestAnimationFrame(()=>{refreshIslandHeight();resizeWave();syncTabIndicator()})
+});
+nav.addEventListener('scroll',syncTabIndicator,{passive:true});
 
 /* Music engine: demo synthesizer and user-loaded files feed the SAME analyser. */
 const tracks=[
@@ -741,7 +842,7 @@ document.addEventListener('visibilitychange',()=>{
   updateSnowLoop();if(!document.hidden)startWaveLoop()
 });
 
-for(const [id,key,transform] of [['accentColor','accent',v=>v],['wavePower','wavePower',v=>+v],['waveToggle','waveEnabled',v=>v],['reducedMotion','reducedMotion',v=>v],['backgroundSnow','backgroundSnow',v=>v],['snowToggle','snow',v=>v],['capsToggle','caps',v=>v],['snowmenToggle','snowmen',v=>v],['snowIntensity','snowIntensity',v=>+v]]){$('#'+id).addEventListener(id==='accentColor'||id==='wavePower'||id==='snowIntensity'?'input':'change',e=>setOption(key,e.target.type==='checkbox'?e.target.checked:transform(e.target.value)))}
+for(const [id,key,transform] of [['accentColor','accent',v=>v],['motionStyle','motionStyle',v=>v],['wavePower','wavePower',v=>+v],['waveToggle','waveEnabled',v=>v],['reducedMotion','reducedMotion',v=>v],['backgroundSnow','backgroundSnow',v=>v],['snowToggle','snow',v=>v],['capsToggle','caps',v=>v],['snowmenToggle','snowmen',v=>v],['snowIntensity','snowIntensity',v=>+v]]){$('#'+id).addEventListener(id==='accentColor'||id==='wavePower'||id==='snowIntensity'?'input':'change',e=>setOption(key,e.target.type==='checkbox'?e.target.checked:transform(e.target.value)))}
 $('#weatherInput').addEventListener('change',e=>{options.weatherCity=e.target.value.trim();persist()});
 
 /* Reproducible smoke-test report for the first Windows launch.
@@ -796,4 +897,4 @@ $('#quitNative').addEventListener('click',()=>{
   })
 });
 function clock(){const now=new Date();$('#desktopClock').textContent=now.toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});updatePlayer()}
-setInterval(clock,1000);clock();emptyCanvas();updateEditor();renderNotes();applyOptions();$('#lyricsTrack').value=activeTrack().name;$('#lyricsArtist').value=activeTrack().artist;$('#queueCount').textContent='DEMO 1/'+tracks.length;updatePlayer();setExpanded(false);updateSnowLoop();
+setInterval(clock,1000);clock();emptyCanvas();updateEditor();renderNotes();applyOptions();syncTabIndicator();$('#lyricsTrack').value=activeTrack().name;$('#lyricsArtist').value=activeTrack().artist;$('#queueCount').textContent='DEMO 1/'+tracks.length;updatePlayer();setExpanded(false);updateSnowLoop();
