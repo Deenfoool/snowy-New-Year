@@ -5,12 +5,19 @@ const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 // host. Browser mode never requests native privileges.
 const nativeApi=window.__TAURI__;
 const nativeShell=Boolean(nativeApi?.core?.invoke);
+let nativeBridgeStatus=nativeShell?'Ожидает ответа':'Браузерная версия';
+let runtimeErrorCount=0;
+window.addEventListener('error',()=>{runtimeErrorCount++});
+window.addEventListener('unhandledrejection',()=>{runtimeErrorCount++});
 document.documentElement.classList.toggle('native-shell',nativeShell);
 function resizeNativeWindow(expanded){
   if(!nativeShell)return;
-  nativeApi.core.invoke('set_island_expanded',{expanded}).catch(error=>{
-    console.warn('Island Lab: native window resize failed',error);
-  });
+  nativeApi.core.invoke('set_island_expanded',{expanded})
+    .then(()=>{nativeBridgeStatus='OK'})
+    .catch(error=>{
+      nativeBridgeStatus='Ошибка IPC';
+      console.warn('Island Lab: native window resize failed',error);
+    });
 }
 const KEY='island-lab-v1', NOTES='island-lab-notes-v1';
 const defaults={accent:'#8dd9f6',wavePower:65,waveEnabled:true,reducedMotion:false,backgroundSnow:true,snow:true,caps:true,snowmen:true,snowIntensity:42,weatherCity:'',lyricsOffset:0,offset:null};
@@ -445,5 +452,52 @@ document.addEventListener('visibilitychange',()=>{
 
 for(const [id,key,transform] of [['accentColor','accent',v=>v],['wavePower','wavePower',v=>+v],['waveToggle','waveEnabled',v=>v],['reducedMotion','reducedMotion',v=>v],['backgroundSnow','backgroundSnow',v=>v],['snowToggle','snow',v=>v],['capsToggle','caps',v=>v],['snowmenToggle','snowmen',v=>v],['snowIntensity','snowIntensity',v=>+v]]){$('#'+id).addEventListener(id==='accentColor'||id==='wavePower'||id==='snowIntensity'?'input':'change',e=>setOption(key,e.target.type==='checkbox'?e.target.checked:transform(e.target.value)))}
 $('#weatherInput').addEventListener('change',e=>{options.weatherCity=e.target.value.trim();persist()});
+
+/* Reproducible smoke-test report for the first Windows launch.
+   Never copy note text, screenshot pixels, music file names or city names. */
+function diagnosticsText(){
+  const features=[
+    ['Tauri IPC',nativeShell?nativeBridgeStatus:'Не требуется'],
+    ['Аудио Web Audio',Boolean(window.AudioContext||window.webkitAudioContext)?'Поддерживается':'Недоступно'],
+    ['Редактор Canvas',Boolean(base.getContext('2d')&&draw.getContext('2d'))?'Поддерживается':'Недоступно'],
+    ['Захват экрана',navigator.mediaDevices?.getDisplayMedia?'Поддерживается браузером':'Недоступно'],
+    ['Буфер обмена',navigator.clipboard?.read?'Доступен при разрешении':'Ограничен'],
+    ['Окно',expanded?'Развёрнуто':'Капсула'],
+    ['Волна',options.waveEnabled?'Включена':'Отключена'],
+    ['Музыка',music.playing?'Воспроизводится':'Остановлена'],
+    ['Ошибки JavaScript',String(runtimeErrorCount)]
+  ];
+  let storage='Недоступно';
+  try{const key='island-lab-storage-check';localStorage.setItem(key,'1');storage=localStorage.getItem(key)==='1'?'Доступно':'Недоступно';localStorage.removeItem(key)}catch{}
+  features.push(['Локальное сохранение',storage]);
+  return [
+    'Island Lab — технический отчёт v0.2',
+    'Режим: '+(nativeShell?'Tauri / WebView2':'Веб-страница'),
+    'Размер области: '+innerWidth+'×'+innerHeight+' CSS px',
+    'Масштаб экрана: '+(window.devicePixelRatio||1),
+    'Контекст: '+(window.isSecureContext?'Защищённый':'Незащищённый'),
+    ...features.map(([name,value])=>name+': '+value),
+    'Примечание: это проверка доступности API, не гарантия работоспособности Windows-хуков.',
+  ].join('\n');
+}
+$('#runDiagnostics').addEventListener('click',()=>{
+  $('#diagnosticsOutput').textContent=diagnosticsText();
+  toast('Отчёт сформирован')
+});
+$('#copyDiagnostics').addEventListener('click',async()=>{
+  const report=diagnosticsText();
+  $('#diagnosticsOutput').textContent=report;
+  try{await navigator.clipboard.writeText(report);toast('Отчёт скопирован')}
+  catch{toast('Не удалось скопировать автоматически — выдели отчёт и нажми Ctrl+C')}
+});
+$('#quitNative').hidden=!nativeShell;
+$('#quitNative').addEventListener('click',()=>{
+  if(!nativeShell)return;
+  if(!confirm('Закрыть Island Lab?'))return;
+  nativeApi.core.invoke('quit_island_lab').catch(error=>{
+    console.warn('Island Lab: quit failed',error);
+    toast('Не удалось закрыть приложение')
+  })
+});
 function clock(){const now=new Date();$('#desktopClock').textContent=now.toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});updatePlayer()}
 setInterval(clock,1000);clock();emptyCanvas();updateEditor();renderNotes();applyOptions();$('#lyricsTrack').value=activeTrack().name;$('#lyricsArtist').value=activeTrack().artist;updatePlayer();setExpanded(false);updateSnowLoop();
