@@ -1,0 +1,13 @@
+[package]
+name = "island-lab-native"
+version = "0.1.0"
+description = "Island Lab desktop capsule - experimental Windows host"
+edition = "2021"
+rust-version = "1.95"
+build = "build.rs"
+
+[dependencies]
+tauri = { version = "2" }
+
+[build-dependencies]
+tauri-build = { version = "2" }
