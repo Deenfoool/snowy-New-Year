@@ -12,6 +12,7 @@ serde = { version = "1", features = ["derive"] }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62.2", features = ["Foundation", "Media_Control"] }
+wasapi = "0.27"
 
 [build-dependencies]
 tauri-build = { version = "2" }
