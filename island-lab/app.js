@@ -983,6 +983,68 @@ $('#weatherInput').addEventListener('change',e=>{options.weatherCity=e.target.va
 
 /* Reproducible smoke-test report for the first Windows launch.
    Never copy note text, screenshot pixels, music file names or city names. */
+/** The FPS benchmark is opt-in and runs for at most eight seconds.
+ * Frame timings never leave the device; only aggregated metrics are shown.
+ */
+function summarizeMotionFrames(samples){
+  const usable=samples.filter(ms=>Number.isFinite(ms)&&ms>0);
+  if(!usable.length)return null;
+  const ordered=usable.slice().sort((a,b)=>a-b);
+  const total=usable.reduce((sum,value)=>sum+value,0);
+  const mean=total/usable.length;
+  const p95=ordered[Math.min(ordered.length-1,Math.ceil(.95*ordered.length)-1)];
+  const drops=usable.filter(ms=>ms>33.4).length;
+  return {
+    fps:Math.round(1000/mean),
+    meanMs:Math.round(mean*10)/10,
+    p95Ms:Math.round(p95*10)/10,
+    slowFrames:drops,
+    frames:usable.length
+  }
+}
+let lastMotionBenchmark=null,benchmarkRunning=false,benchmarkRaf=0;
+const benchmarkButton=$('#motionBenchmarkBtn');
+const benchmarkOutput=$('#motionBenchmarkResult');
+function stopMotionBenchmark(message){
+  benchmarkRunning=false;
+  if(benchmarkRaf)cancelAnimationFrame(benchmarkRaf);
+  benchmarkRaf=0;benchmarkButton.disabled=false;
+  if(message)benchmarkOutput.textContent=message
+}
+benchmarkButton.addEventListener('click',()=>{
+  if(benchmarkRunning)return;
+  if(document.hidden){toast('Открой окно Island для проверки');return}
+  benchmarkRunning=true;benchmarkButton.disabled=true;
+  benchmarkOutput.textContent='Идёт замер… Переключай вкладки и запусти музыку.';
+  const samples=[];
+  let start=0,previous=0;
+  function sample(now){
+    if(!benchmarkRunning||document.hidden){
+      stopMotionBenchmark('Замер остановлен: окно скрыто.');return
+    }
+    if(!start)start=now;
+    if(previous){
+      const delta=now-previous;
+      if(delta>0)samples.push(delta)
+    }
+    previous=now;
+    if(now-start<8000){
+      benchmarkRaf=requestAnimationFrame(sample);return
+    }
+    const report=summarizeMotionFrames(samples);
+    lastMotionBenchmark=report;
+    stopMotionBenchmark(report?
+      'FPS: '+report.fps+' · средний кадр: '+report.meanMs+
+      ' мс · P95: '+report.p95Ms+' мс · медленных кадров: '+report.slowFrames:
+      'Не удалось измерить кадры.')
+  }
+  benchmarkRaf=requestAnimationFrame(sample)
+});
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden&&benchmarkRunning)
+    stopMotionBenchmark('Замер остановлен: окно скрыто.')
+});
+
 function diagnosticsText(){
   const features=[
     ['Tauri IPC',nativeShell?nativeBridgeStatus:'Не требуется'],
@@ -991,6 +1053,9 @@ function diagnosticsText(){
       !audioCapture?.supported?'Недоступен':
       audioCapture.active?'Активен (системный микс)':'Выключен'],
     ['Спектр',audioCapture?.active?'16 полос, без сохранения звука':'Не используется'],
+    ['Режим анимаций',window.IslandMotion?.preset||'fluid'],
+    ['FPS (последний замер)',lastMotionBenchmark?String(lastMotionBenchmark.fps):'Не измерялся'],
+    ['P95 кадра',lastMotionBenchmark?lastMotionBenchmark.p95Ms+' мс':'Не измерялся'],
     ['Редактор Canvas',Boolean(base.getContext('2d')&&draw.getContext('2d'))?'Поддерживается':'Недоступно'],
     ['Захват экрана',navigator.mediaDevices?.getDisplayMedia?'Поддерживается браузером':'Недоступно'],
     ['Буфер обмена',navigator.clipboard?.read?'Доступен при разрешении':'Ограничен'],
