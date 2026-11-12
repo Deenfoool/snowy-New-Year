@@ -96,13 +96,22 @@ impl Default for AudioCaptureState {
 
 impl AudioCaptureState {
     fn stop_capture(&self) {
-        self.stop.store(true, Ordering::Release);
-        if let Ok(mut guard) = self.worker.lock() {
-            if let Some(worker) = guard.take() {
-                let _ = worker.join();
+        // Hold the same mutex as start_capture for the entire transition:
+        // a rapid start/stop cannot create a worker after stop has returned.
+        match self.worker.lock() {
+            Ok(mut guard) => {
+                self.stop.store(true, Ordering::Release);
+                if let Some(worker) = guard.take() {
+                    let _ = worker.join();
+                }
+                self.enabled.store(false, Ordering::Release);
+            }
+            Err(_) => {
+                // Even a poisoned lock must request worker shutdown.
+                self.stop.store(true, Ordering::Release);
+                self.enabled.store(false, Ordering::Release);
             }
         }
-        self.enabled.store(false, Ordering::Release);
     }
 }
 
@@ -117,21 +126,22 @@ pub fn audio_capture_start(
     app: tauri::AppHandle,
     state: tauri::State<'_, AudioCaptureState>,
 ) -> Result<bool, String> {
-    if state.enabled.swap(true, Ordering::AcqRel) {
+    // The mutex guards both the state transition and the worker handle.
+    // Check enabled only while holding it, otherwise a pending stop could
+    // complete before the worker is actually spawned.
+    let mut guard = state
+        .worker
+        .lock()
+        .map_err(|_| "Capture lock poisoned".to_owned())?;
+    if state.enabled.load(Ordering::Acquire) {
         return Ok(true);
     }
-    state.stop.store(false, Ordering::Release);
-
-    // Only join a *finished* prior worker; a normal running worker is blocked
-    // from recreation by the atomic enabled flag.
-    let mut guard = state.worker.lock().map_err(|_| {
-        state.enabled.store(false, Ordering::Release);
-        "Capture lock poisoned".to_owned()
-    })?;
     if let Some(old) = guard.take() {
         let _ = old.join();
     }
 
+    state.stop.store(false, Ordering::Release);
+    state.enabled.store(true, Ordering::Release);
     let stop = Arc::clone(&state.stop);
     let enabled = Arc::clone(&state.enabled);
     let worker = thread::Builder::new()
