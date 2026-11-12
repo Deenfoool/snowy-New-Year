@@ -43,6 +43,9 @@ jobs:
       - name: Web smoke tests
         run: npm test
 
+      - name: Rust native and WASAPI DSP unit tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
       - name: Compile Windows executable (no installer)
         run: npm run build
 
