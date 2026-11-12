@@ -113,8 +113,8 @@ test('frame pacing summary reports mean FPS, p95 and jank',()=>{
   assert.equal(normal.fps,60);
   assert.equal(normal.slowFrames,0);
   assert.ok(normal.p95Ms>16&&normal.p95Ms<17);
-  const janky=summarize([...Array(19).fill(16.7),60]);
-  assert.equal(janky.slowFrames,1);
+  const janky=summarize([...Array(18).fill(16.7),60,60]);
+  assert.equal(janky.slowFrames,2);
   assert.equal(janky.p95Ms,60);
   assert.equal(summarize([]),null);
   assert.match(html,/id="motionBenchmarkBtn"/);
