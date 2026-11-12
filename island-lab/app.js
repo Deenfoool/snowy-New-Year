@@ -1053,11 +1053,16 @@ function summarizeMotionFrames(samples){
   const total=usable.reduce((sum,value)=>sum+value,0);
   const mean=total/usable.length;
   const p95=ordered[Math.min(ordered.length-1,Math.ceil(.95*ordered.length)-1)];
-  const drops=usable.filter(ms=>ms>33.4).length;
+  // Use a fast-but-not-minimum reference frame. At 120/144 Hz a lost
+  // frame is visible well before the old fixed 33.4ms cutoff.
+  const baseline=ordered[Math.floor((ordered.length-1)*.1)];
+  const slowThreshold=baseline*1.75;
+  const drops=usable.filter(ms=>ms>slowThreshold).length;
   return {
     fps:Math.round(1000/mean),
     meanMs:Math.round(mean*10)/10,
     p95Ms:Math.round(p95*10)/10,
+    baselineMs:Math.round(baseline*10)/10,
     slowFrames:drops,
     frames:usable.length
   }
@@ -1095,7 +1100,8 @@ benchmarkButton.addEventListener('click',()=>{
     lastMotionBenchmark=report;
     stopMotionBenchmark(report?
       'FPS: '+report.fps+' · средний кадр: '+report.meanMs+
-      ' мс · P95: '+report.p95Ms+' мс · медленных кадров: '+report.slowFrames:
+      ' мс · P95: '+report.p95Ms+' мс · базовый кадр: '+report.baselineMs+
+      ' мс · рывков: '+report.slowFrames:
       'Не удалось измерить кадры.')
   }
   benchmarkRaf=requestAnimationFrame(sample)
